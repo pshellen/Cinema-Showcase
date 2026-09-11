@@ -66,6 +66,8 @@ Hosted expands each selection into its images, videos, durations, and schedules,
 
 Version 0.17 uses a source-based repeating round robin: one INDY movie, one active item from the combined child playlists, then one Campaign Manager movie. Missing sources are skipped. A source with fewer items wraps independently, so an available Campaign Manager movie cannot be stranded at the end of a long INDY or child-playlist roster. Movie status labels and the Coming Soon enable switch still apply.
 
+Version 0.18 adds `cinema_showcase_marketing` campaigns to the Campaign Manager slot. Movie campaigns retain their status footer and optional ticket QR. Marketing campaigns render their orientation-specific static artwork full screen without **Coming Soon**, **Now Showing**, or any other movie footer. Marketing content participates in the same INDY → child playlist → Campaign Manager round robin.
+
 **Playlist media scaling** defaults to **Fit and center**. The complete image or video is proportionally scaled into the display and centered, with black letterboxing where its aspect ratio differs from the screen. **Fill screen (crop)** is available when edge-to-edge playback is preferred.
 
 After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.

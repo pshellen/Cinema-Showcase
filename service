@@ -160,9 +160,12 @@ def fetch_campaign_movies(config, site_id, today):
             reject("not_an_object")
             continue
         kind = str(entry.get("campaign_type") or entry.get("campaignType") or entry.get("type") or "coming_soon_movie").lower()
-        if kind not in ("coming_soon_movie", "cinema_showcase_movie", "coming_soon", "movie"):
+        movie_kinds = ("coming_soon_movie", "cinema_showcase_movie", "coming_soon", "movie")
+        marketing_kinds = ("cinema_showcase_marketing", "signage_marketing", "marketing_campaign", "marketing", "signage_ad")
+        if kind not in movie_kinds + marketing_kinds:
             reject("campaign_type")
             continue
+        campaign_kind = "movie" if kind in movie_kinds else "marketing"
         media_type = str(entry.get("media_type") or entry.get("mediaType") or "image").lower()
         if media_type not in ("image", "static_image"):
             reject("media_type")
@@ -234,8 +237,15 @@ def fetch_campaign_movies(config, site_id, today):
             "rating": entry.get("rating"),
             "showtimes": [],
             "source": "campaign_manager",
+            "campaign_kind": campaign_kind,
             "campaign_id": entry.get("id"),
         }
+        if campaign_kind == "marketing":
+            movie["release_date"] = None
+            movie["ticket_url"] = None
+            movie["url_slug"] = None
+            movie["on_sale"] = False
+            movie["status"] = "marketing"
         movies.append(movie)
     write_campaign_status({
         "ok": True,

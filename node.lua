@@ -264,9 +264,18 @@ local function draw_movie(movie, alpha)
     local width, height = canvas_width, canvas_height
     local footer = height * 0.84
     local margin = width * 0.04
-    local accent = movie.status == "coming_soon" and {0.95, 0.55, 0.18} or (movie.status == "starts_tomorrow" and {0.98, 0.78, 0.20} or (movie.status == "leaving_soon" and {0.92, 0.30, 0.32} or {0.15, 0.78, 0.72}))
     gl.clear(0.025, 0.035, 0.06, 1)
     local poster = movie.poster_file and posters[movie.poster_file]
+    if movie.campaign_kind == "marketing" then
+        if poster and poster:state() == "loaded" then
+            util.draw_correct(poster, 0, 0, width, height, alpha)
+        else
+            text_width_limited(movie.title or "Marketing", margin, height * 0.40, width * 0.07, width - 2 * margin, 1, 1, 1, alpha)
+            font:write(margin, height * 0.55, "Artwork unavailable", width * 0.035, 0.72, 0.77, 0.84, alpha)
+        end
+        return
+    end
+    local accent = movie.status == "coming_soon" and {0.95, 0.55, 0.18} or (movie.status == "starts_tomorrow" and {0.98, 0.78, 0.20} or (movie.status == "leaving_soon" and {0.92, 0.30, 0.32} or {0.15, 0.78, 0.72}))
     if poster and poster:state() == "loaded" then
         util.draw_correct(poster, 0, 0, width, footer, alpha)
     else

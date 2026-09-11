@@ -1,5 +1,9 @@
 # Cinema Showcase for info-beamer
 
+## Display rotation
+
+Choose **Display rotation** in the info-beamer setup to rotate the complete output clockwise by 0°, 90°, 180°, or 270°. The setting uses info-beamer's native screen transform, and the Hosted device preview follows the selected orientation.
+
 ## Portrait renderer fix
 
 The renderer now uses documented info-beamer colored textures instead of unsupported gl.color/gl.rect calls. Movie slides use the approved portrait composition: poster above a compact status footer, with the ticket caption and QR fully inside the footer. Showtimes, auditorium and repeated movie titles are omitted when artwork is available. Missing artwork displays the movie title and "Poster unavailable"; startup without a catalog displays "Waiting for schedule content".
@@ -40,7 +44,9 @@ For production, use the cinema POS/TMS/booking system as the schedule authority.
 
 ## Child packages
 
-Add packages as children of Cinema Showcase in the setup editor. All direct children are sorted by node name and mixed evenly between movie slides. Child packages should render correctly when called through `resource.render_child()` and should not assume they permanently own the screen.
+Add a package beneath Cinema Showcase in the setup editor, then choose it in the **Child playlist** selector in Cinema Showcase's configuration. The selected child is mixed between movie slides using **Child package duration**. Choose the built-in **No child playlist** entry when no child content should play. Child packages should render correctly when called through `resource.render_child()` and should not assume they permanently own the screen.
+
+Cinema Showcase explicitly accepts nested packages. After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.
 
 ## TMDB terms
 

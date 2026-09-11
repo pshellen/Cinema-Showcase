@@ -5,6 +5,31 @@
   },
   "options": [
     {
+      "title": "Child playlist",
+      "ui_width": 8,
+      "name": "child_playlist",
+      "type": "resource",
+      "valid": ["child"],
+      "default": "empty-child",
+      "hint": "Add a package beneath Cinema Showcase in the setup, then select it here",
+      "doc_link": true
+    },
+    {
+      "title": "Display rotation",
+      "ui_width": 4,
+      "name": "rotation",
+      "type": "select",
+      "hint": "Rotate the complete output clockwise",
+      "doc_link": true,
+      "options": [
+        [0, "None"],
+        [90, "90° clockwise"],
+        [180, "180°"],
+        [270, "270° clockwise"]
+      ],
+      "default": 0
+    },
+    {
       "title": "Share posters over local network",
       "name": "peer_sharing",
       "type": "boolean",

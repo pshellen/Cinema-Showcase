@@ -26,13 +26,20 @@ local children = {}
 local sequence = {}
 local sequence_index = 1
 local sequence_started = sys.now()
+local screen_transform = util.screen_transform(0)
 
-local function sorted_children()
+local function selected_children()
     local result = {}
-    for name, _ in pairs(CHILDS or {}) do
+    local selected = config.child_playlist
+    local name = nil
+    if type(selected) == "table" then
+        name = selected.asset_name or selected.filename
+    elseif type(selected) == "string" then
+        name = selected
+    end
+    if name and name ~= "empty-child" and (CHILDS or {})[name] then
         table.insert(result, name)
     end
-    table.sort(result)
     return result
 end
 
@@ -50,7 +57,7 @@ local function rebuild_sequence()
             table.insert(now_showing, movie)
         end
     end
-    local child_names = sorted_children()
+    local child_names = selected_children()
     local widest = math.max(#now_showing, #starts_tomorrow, config.show_coming_soon and #coming_soon or 0, #child_names)
     for index = 1, widest do
         if now_showing[index] then
@@ -89,6 +96,11 @@ end
 
 util.json_watch("config.json", function(updated)
     config = updated
+    local rotation = tonumber(config.rotation) or 0
+    if rotation ~= 0 and rotation ~= 90 and rotation ~= 180 and rotation ~= 270 then
+        rotation = 0
+    end
+    screen_transform = util.screen_transform(rotation)
     config.movie_duration = math.max(2, tonumber(config.movie_duration) or 12)
     config.child_duration = math.max(2, tonumber(config.child_duration) or 15)
     rebuild_sequence()
@@ -191,6 +203,7 @@ local function draw_empty()
 end
 
 function node.render()
+    screen_transform()
     local item = sequence[sequence_index]
     if not item then rebuild_sequence(); item = sequence[1] end
     local elapsed = sys.now() - sequence_started

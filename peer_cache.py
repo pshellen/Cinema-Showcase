@@ -1,4 +1,4 @@
-"""Authenticated, bounded LAN poster cache; compatible with Python 2.7/3."""
+"""Authenticated, bounded LAN campaign-media cache; compatible with Python 2.7/3."""
 from __future__ import print_function
 import hashlib
 import hmac
@@ -14,8 +14,8 @@ except ImportError:
     from urllib2 import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 PORT = 18742
-MAX_BYTES = 8 * 1024 * 1024
-NAME = re.compile(r'^poster-[a-f0-9]{64}\.(?:jpg|png)$')
+MAX_BYTES = 16 * 1024 * 1024
+NAME = re.compile(r'^(?:poster-[a-f0-9]{64}\.(?:jpg|png)|video-[a-f0-9]{64}\.mp4)$')
 
 
 def signature(secret, data):
@@ -32,8 +32,18 @@ def image_ok(data):
     return data.startswith(b'\xff\xd8\xff') or data.startswith(b'\x89PNG\r\n\x1a\n')
 
 
+def media_ok(filename, data):
+    if filename.startswith('video-'):
+        return len(data) >= 12 and data[4:8] == b'ftyp'
+    return image_ok(data)
+
+
 def poster_name(url):
     return 'poster-' + hashlib.sha256(url.encode('utf-8')).hexdigest() + ('.png' if url.endswith('.png') else '.jpg')
+
+
+def video_name(url):
+    return 'video-' + hashlib.sha256(url.encode('utf-8')).hexdigest() + '.mp4'
 
 
 def private_ipv4(value):
@@ -73,7 +83,7 @@ def fetch(config, filename, destination):
             data = response.read(MAX_BYTES + 1)
             expected = signature(secret, context + b'\n' + data)
             received = response.headers.get('X-Cinema-Auth', '')
-            if len(data) > MAX_BYTES or not image_ok(data) or not hmac.compare_digest(expected, received):
+            if len(data) > MAX_BYTES or not media_ok(filename, data) or not hmac.compare_digest(expected, received):
                 continue
             temporary = destination + '.new'
             with open(temporary, 'wb') as handle:
@@ -81,7 +91,7 @@ def fetch(config, filename, destination):
                 handle.flush()
                 os.fsync(handle.fileno())
             os.rename(temporary, destination)
-            print('poster retrieved from LAN peer %s' % host)
+            print('campaign media retrieved from LAN peer %s' % host)
             return True
         except (IOError, OSError, ValueError, socket.error):
             continue
@@ -117,13 +127,17 @@ def make_server(root, config_reader, address=('', PORT)):
                     raise IOError('symlink')
                 with open(path, 'rb') as handle:
                     data = handle.read(MAX_BYTES + 1)
-                if len(data) > MAX_BYTES or not image_ok(data):
-                    raise IOError('invalid image')
+                if len(data) > MAX_BYTES or not media_ok(filename, data):
+                    raise IOError('invalid campaign media')
             except IOError:
                 self.send_error(404)
                 return
             self.send_response(200)
-            self.send_header('Content-Type', 'image/png' if filename.endswith('.png') else 'image/jpeg')
+            if filename.endswith('.mp4'):
+                content_type = 'video/mp4'
+            else:
+                content_type = 'image/png' if filename.endswith('.png') else 'image/jpeg'
+            self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))
             self.send_header('X-Cinema-Auth', signature(secret, context + b'\n' + data))
             self.end_headers()

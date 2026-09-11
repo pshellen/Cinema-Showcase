@@ -1,7 +1,7 @@
 {
   "name": "Cinema Showcase",
   "permissions": {
-    "network": "Fetches schedules and artwork; shares authenticated poster downloads with configured LAN peers on TCP 18742"
+    "network": "Fetches schedules and campaign media; shares authenticated poster and video downloads with configured LAN peers on TCP 18742"
   },
   "expand_schedules": true,
   "options": [
@@ -138,6 +138,13 @@
       "title": "Playlist video audio",
       "name": "playlist_audio",
       "type": "boolean",
+      "default": false
+    },
+    {
+      "title": "Campaign marketing video audio",
+      "name": "campaign_video_audio",
+      "type": "boolean",
+      "hint": "Off by default; enable only when these displays should play campaign audio",
       "default": false
     },
     {

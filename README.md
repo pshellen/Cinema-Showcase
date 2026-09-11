@@ -10,13 +10,13 @@ For 90° and 270° rotation, Cinema Showcase swaps the logical canvas dimensions
 
 The renderer now uses documented info-beamer colored textures instead of unsupported gl.color/gl.rect calls. Movie slides use the approved portrait composition: poster above a compact status footer, with the ticket caption and QR fully inside the footer. Showtimes, auditorium and repeated movie titles are omitted when artwork is available. Missing artwork displays the movie title and "Poster unavailable"; startup without a catalog displays "Waiting for schedule content".
 
-Local verification: 15 tests including Lua 5.1 rendering smoke tests (requires the development-only Python lupa package). The smoke tests reproduce the old drawing-call failure and exercise missing/loaded posters, ticket-caption position, and offline-indicator recovery. Actual info-beamer device playback remains to be verified.
+Version 0.19 was checked with Python syntax/JSON validation and focused campaign-parser, MP4-validation, and download-once cache tests. Actual video decoding and playback still needs verification on an info-beamer device.
 
-## Local poster sharing and offline indicator
+## Local media sharing and offline indicator
 
 Enable **Share posters over local network** and enter nearby Cinema Showcase devices' private IPv4 addresses, separated by commas. Use DHCP reservations. Devices must belong to the same info-beamer account and allow TCP 18742 between them. Discovery is manual and separate from info-beamer's built-in asset P2P setting. Run one Cinema Showcase service per device on this port.
 
-Downloads check the local file first, then up to eight configured peers, then the source image server. Poster filenames hash the exact source URL to distinguish artwork revisions. An unchanged URL is downloaded only once per device and reused for offline playback. Requests and response bodies are authenticated with the info-beamer account secret; credentials and schedules are never served. Transfers use authenticated HTTP, not encryption. Without the account secret, normal internet downloads continue. Uncached metadata or artwork still requires internet.
+Downloads check the local file first, then up to eight configured peers, then the source server. Poster and video filenames hash the exact source URL to distinguish revisions. An unchanged URL is downloaded once per device and reused for offline playback. Campaign videos also live in info-beamer's persistent scratch area and are linked into the package for playback, so a normal service restart or package update does not force the source video to download again. Requests and response bodies are authenticated with the info-beamer account secret; credentials and schedules are never served. Transfers use authenticated HTTP, not encryption. Without the account secret, normal internet downloads continue. Uncached metadata or media still requires internet.
 
 The menu package's offline-logo.png appears at bottom left when a schedule refresh fails, including over child packages, and disappears after a successful refresh. It indicates unavailable/stale feed data rather than independently testing internet access. Detection follows the refresh interval and retry backoff. Cached playback continues.
 
@@ -40,7 +40,7 @@ When **Catch It on the Big Screen enabled** is on, the callout is evaluated only
 
 Coming Soon movies are managed in Lovable and returned by the configured JSON endpoint. The package requests `site_id`, `orientation`, and `channel=cinema_showcase`. It accepts a top-level `campaigns` array matching `sample-campaign-feed.json`. Entries can target all locations or list the matching INDY site ID in `location_ids`.
 
-In **Auto** artwork mode, display rotations 90° and 270° request `vertical` and use `vertical_image_url`; rotations 0° and 180° request `horizontal` and use `horizontal_image_url`. The opposite variant is only a fallback when the requested one is absent. Campaigns are static images only. `active_from` and `active_until` control campaign availability, while `release_date` controls the **Now Showing**, **Starts Tomorrow**, or **Coming Soon** label.
+In **Auto** artwork mode, display rotations 90° and 270° request `vertical` and use `vertical_image_url`; rotations 0° and 180° request `horizontal` and use `horizontal_image_url`. The opposite variant is only a fallback when the requested one is absent. `active_from` and `active_until` control campaign availability, while `release_date` controls the **Now Showing**, **Starts Tomorrow**, or **Coming Soon** label.
 
 The feed may require an optional function token or Supabase publishable key. Paste a plain endpoint URL such as `https://PROJECT.supabase.co/functions/v1/signage-campaigns`, not Markdown link syntax. Version 0.14 defensively unwraps a Markdown link if one is pasted accidentally. Modern `sb_publishable_...` keys are sent in Supabase's `apikey` header; other configured function tokens are sent as Bearer credentials. Never store a service-role key on a signage player.
 
@@ -68,6 +68,10 @@ Version 0.17 uses a source-based repeating round robin: one INDY movie, one acti
 
 Version 0.18 adds `cinema_showcase_marketing` campaigns to the Campaign Manager slot. Movie campaigns retain their status footer and optional ticket QR. Marketing campaigns render their orientation-specific static artwork full screen without **Coming Soon**, **Now Showing**, or any other movie footer. Marketing content participates in the same INDY → child playlist → Campaign Manager round robin.
 
+Version 0.19 allows `cinema_showcase_marketing` campaigns to use either an image or an MP4 video. Movie campaigns remain image-only. A video response uses `media_type: "video"`, `duration_seconds`, and orientation-specific `vertical_video_url` / `horizontal_video_url` fields; `file_size_bytes` and `sha256` are strongly recommended. Videos are limited to 20 seconds and 16 MB, play in the Campaign Manager round-robin slot, loop only if the configured slot outlasts the clip, and are muted unless **Campaign marketing video audio** is enabled.
+
+Use H.264 MP4 with `yuv420p`, AAC audio if needed, `+faststart`, and a maximum of 30 fps. Export 1080×1920 for vertical and 1920×1080 for horizontal. Keep every media URL immutable: replacing a creative must produce a new versioned URL. This is what lets each device and its LAN peers distinguish “already cached” from “new revision” without repeatedly reading the file from cloud storage.
+
 **Playlist media scaling** defaults to **Fit and center**. The complete image or video is proportionally scaled into the display and centered, with black letterboxing where its aspect ratio differs from the screen. **Fill screen (crop)** is available when edge-to-edge playback is preferred.
 
 After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.
@@ -86,4 +90,4 @@ Commercial cinema use may require a TMDB commercial agreement. Include the appro
 
 ## Reliability
 
-Posters, campaign artwork, QR codes, and TMDB search matches are cached. Content stops playing as soon as it leaves the active catalog, but its local file is retained for two days after it was last active before deletion. This limits repeat downloads when a campaign briefly disappears while reclaiming space from genuinely expired content. The last valid catalog stays on screen when refreshes fail. Network errors retry with exponential backoff. Keep the feed on HTTPS and avoid placing credentials in its URL.
+Posters, campaign images and videos, QR codes, and TMDB search matches are cached. Content stops playing as soon as it leaves the active catalog, but its local file is retained for two days after it was last active before deletion. Video cache entries are removed from both the playback directory and persistent scratch storage at that point. This limits repeat downloads when a campaign briefly disappears while reclaiming space from genuinely expired content. The last valid catalog stays on screen when refreshes fail. Network errors retry with exponential backoff. Keep the feed on HTTPS and avoid placing credentials in its URL.

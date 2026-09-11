@@ -16,6 +16,21 @@
       "url_slug": "example-movie",
       "vertical_image_url": "https://cdn.example.com/campaigns/example-movie/vertical-v1.jpg",
       "horizontal_image_url": "https://cdn.example.com/campaigns/example-movie/horizontal-v1.jpg"
+    },
+    {
+      "id": "example-marketing-video",
+      "campaign_type": "cinema_showcase_marketing",
+      "media_type": "video",
+      "title": "Example Lobby Promotion",
+      "active_from": "2026-09-01T00:00:00Z",
+      "active_until": "2026-09-30T23:59:59Z",
+      "channels": ["cinema_showcase"],
+      "all_locations": true,
+      "duration_seconds": 20,
+      "file_size_bytes": 12582912,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "vertical_video_url": "https://cdn.example.com/campaigns/lobby-promotion/vertical-v1.mp4",
+      "horizontal_video_url": "https://cdn.example.com/campaigns/lobby-promotion/horizontal-v1.mp4"
     }
   ]
 }

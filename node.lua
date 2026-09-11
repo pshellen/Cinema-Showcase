@@ -20,6 +20,7 @@ local config = {
     interstitial_playlist = {},
     additional_playlists = {},
     show_coming_soon = true,
+    campaign_video_audio = false,
 }
 local movies = {}
 local posters = {}
@@ -116,7 +117,11 @@ local function rebuild_sequence()
         end
         if #campaign_movies > 0 then
             local movie = campaign_movies[((index - 1) % #campaign_movies) + 1]
-            table.insert(sequence, {kind="movie", movie=movie, duration=config.movie_duration})
+            local duration = config.movie_duration
+            if movie.campaign_kind == "marketing" and movie.media_type == "video" then
+                duration = math.max(2, math.min(20, tonumber(movie.duration) or config.movie_duration))
+            end
+            table.insert(sequence, {kind="movie", movie=movie, duration=duration})
         end
     end
     if #sequence == 0 then
@@ -366,6 +371,28 @@ local function draw_media(item, alpha)
     end
 end
 
+local function draw_campaign_video(movie, alpha)
+    local filename = movie.video_file
+    gl.clear(0, 0, 0, 1)
+    if not filename or not CONTENTS[filename] then
+        stop_video()
+        draw_movie(movie, alpha)
+        return
+    end
+    if active_video_name ~= filename then
+        stop_video()
+        active_video = resource.load_video{
+            file = resource.open_file(filename),
+            audio = config.campaign_video_audio == true,
+            looped = true,
+        }
+        active_video_name = filename
+    end
+    if active_video then
+        draw_playlist_resource(active_video, alpha)
+    end
+end
+
 function node.render()
     screen_transform()
     local item = sequence[sequence_index]
@@ -379,8 +406,12 @@ function node.render()
     end
     local fade = math.min(1, elapsed / 0.5)
     if item.kind == "movie" then
-        stop_video()
-        draw_movie(item.movie, fade)
+        if item.movie.campaign_kind == "marketing" and item.movie.media_type == "video" then
+            draw_campaign_video(item.movie, fade)
+        else
+            stop_video()
+            draw_movie(item.movie, fade)
+        end
     elseif item.kind == "media" then
         draw_media(item, fade)
     else

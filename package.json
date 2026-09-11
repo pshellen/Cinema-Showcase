@@ -1,8 +1,8 @@
 {
   "name": "Cinema Showcase",
   "author": "Cinema Showcase Project",
-  "desc": "INDY Now Showing and Coming Soon signage with ticket QR codes",
-  "version": "0.18",
+  "desc": "INDY movie posters, playlists, and cached Campaign Manager media",
+  "version": "0.19",
   "nesting": {
     "parents": ["top-level"],
     "childs": []

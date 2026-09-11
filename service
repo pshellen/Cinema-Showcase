@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 import calendar
 import peer_cache
@@ -28,6 +29,9 @@ INDY_IMAGE_BASE = "https://indy-systems.imgix.net"
 CACHE_RETENTION_SECONDS = 2 * 24 * 60 * 60
 CACHE_RETENTION_STATE = os.path.join(SCRATCH, "content-retention.json")
 CAMPAIGN_STATUS = os.path.join(ROOT, "campaign-status.json")
+VIDEO_CACHE = os.path.join(SCRATCH, "videos")
+MAX_VIDEO_BYTES = 16 * 1024 * 1024
+MAX_VIDEO_SECONDS = 20
 
 
 def read_json(path, default):
@@ -167,8 +171,13 @@ def fetch_campaign_movies(config, site_id, today):
             continue
         campaign_kind = "movie" if kind in movie_kinds else "marketing"
         media_type = str(entry.get("media_type") or entry.get("mediaType") or "image").lower()
-        if media_type not in ("image", "static_image"):
+        if media_type == "static_image":
+            media_type = "image"
+        if media_type not in ("image", "video"):
             reject("media_type")
+            continue
+        if media_type == "video" and campaign_kind == "movie":
+            reject("movie_video_not_supported")
             continue
         channels = entry.get("channels")
         if channels:
@@ -220,17 +229,56 @@ def fetch_campaign_movies(config, site_id, today):
         if not title:
             reject("missing_title")
             continue
-        if orientation == "vertical":
+        if media_type == "video" and orientation == "vertical":
+            artwork = first_value(entry, ("vertical_video_url", "verticalVideoUrl", "vertical_video", "verticalVideo", "video_url", "videoUrl", "horizontal_video_url", "horizontalVideoUrl"))
+        elif media_type == "video":
+            artwork = first_value(entry, ("horizontal_video_url", "horizontalVideoUrl", "horizontal_video", "horizontalVideo", "video_url", "videoUrl", "vertical_video_url", "verticalVideoUrl"))
+        elif orientation == "vertical":
             artwork = first_value(entry, ("vertical_image_url", "verticalImageUrl", "vertical_image", "verticalImage", "portrait_url", "portraitUrl", "poster_url", "posterUrl", "image_url", "imageUrl", "horizontal_image_url", "horizontalImageUrl"))
         else:
             artwork = first_value(entry, ("horizontal_image_url", "horizontalImageUrl", "horizontal_image", "horizontalImage", "landscape_url", "landscapeUrl", "banner_url", "bannerUrl", "image_url", "imageUrl", "poster_url", "posterUrl", "vertical_image_url", "verticalImageUrl"))
         if not artwork:
             missing_artwork += 1
+            reject("missing_artwork")
+            continue
+        try:
+            artwork = normalize_http_url(artwork, "campaign artwork URL")
+        except ValueError:
+            reject("invalid_artwork_url")
+            continue
+        duration_value = entry.get("duration_seconds") or entry.get("durationSeconds") or entry.get("duration")
+        duration = None
+        if media_type == "video":
+            try:
+                duration = float(duration_value)
+            except (TypeError, ValueError):
+                reject("missing_video_duration")
+                continue
+            if duration <= 0 or duration > MAX_VIDEO_SECONDS:
+                reject("video_duration")
+                continue
+            size_value = entry.get("file_size_bytes") or entry.get("fileSizeBytes") or entry.get("size_bytes") or entry.get("sizeBytes")
+            if size_value:
+                try:
+                    if int(size_value) > MAX_VIDEO_BYTES:
+                        reject("video_size")
+                        continue
+                except (TypeError, ValueError):
+                    pass
         ticket = first_value(entry, ("movie_url", "movieUrl", "ticket_url", "ticketUrl", "url"))
         movie = {
             "title": title,
             "release_date": entry.get("release_date") or entry.get("releaseDate") or entry.get("first_show_date") or entry.get("firstShowDate") or entry.get("opens"),
-            "poster_url": artwork,
+            "poster_url": artwork if media_type == "image" else None,
+            "video_url": artwork if media_type == "video" else None,
+            "media_type": media_type,
+            "duration": duration,
+            "video_sha256": (
+                first_value(entry, ("vertical_video_sha256", "verticalVideoSha256"))
+                if media_type == "video" and orientation == "vertical" else
+                first_value(entry, ("horizontal_video_sha256", "horizontalVideoSha256"))
+                if media_type == "video" else None
+            ) or entry.get("sha256") or entry.get("video_sha256") or entry.get("videoSha256"),
             "ticket_url": ticket,
             "url_slug": entry.get("url_slug") or entry.get("urlSlug") or entry.get("slug"),
             "on_sale": truthy(entry.get("on_sale") if "on_sale" in entry else entry.get("onSale")),
@@ -275,6 +323,105 @@ def download(url, destination):
     finally:
         response.close()
     os.rename(temporary, destination)
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            block = handle.read(65536)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def valid_mp4(path):
+    try:
+        if os.path.getsize(path) > MAX_VIDEO_BYTES:
+            return False
+        with open(path, "rb") as handle:
+            header = handle.read(12)
+        return len(header) >= 12 and header[4:8] == b"ftyp"
+    except (IOError, OSError):
+        return False
+
+
+def download_video(url, destination, expected_sha256=None):
+    temporary = destination + ".new"
+    try:
+        response = urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=60)
+        try:
+            total = 0
+            declared = response.headers.get("Content-Length")
+            if declared and int(declared) > MAX_VIDEO_BYTES:
+                raise ValueError("campaign video exceeds 16 MB")
+            with open(temporary, "wb") as output:
+                while True:
+                    block = response.read(65536)
+                    if not block:
+                        break
+                    total += len(block)
+                    if total > MAX_VIDEO_BYTES:
+                        raise ValueError("campaign video exceeds 16 MB")
+                    output.write(block)
+                output.flush()
+                os.fsync(output.fileno())
+        finally:
+            response.close()
+        if not valid_mp4(temporary):
+            raise ValueError("campaign video is not a valid MP4 container")
+        expected = str(expected_sha256 or "").strip().lower()
+        if expected and sha256_file(temporary) != expected:
+            raise ValueError("campaign video checksum mismatch")
+        os.rename(temporary, destination)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def publish_cached_file(source, destination):
+    if os.path.exists(destination):
+        return
+    try:
+        os.link(source, destination)
+        return
+    except OSError:
+        pass
+    temporary = destination + ".new"
+    with open(source, "rb") as incoming:
+        with open(temporary, "wb") as outgoing:
+            shutil.copyfileobj(incoming, outgoing, 65536)
+            outgoing.flush()
+            os.fsync(outgoing.fileno())
+    os.rename(temporary, destination)
+
+
+def fetch_video_once(config, url, filename, destination, expected_sha256=None):
+    if os.path.exists(destination) and valid_mp4(destination):
+        if not expected_sha256 or sha256_file(destination) == str(expected_sha256).lower():
+            return
+    if not os.path.isdir(VIDEO_CACHE):
+        os.makedirs(VIDEO_CACHE)
+    if peer_cache.fetch(config, filename, destination):
+        if not expected_sha256 or sha256_file(destination) == str(expected_sha256).lower():
+            return
+        os.unlink(destination)
+    peers = str(config.get("peer_addresses") or "").replace(",", " ").split()
+    if config.get("peer_sharing", True) and peers:
+        serial = str(os.environ.get("SERIAL") or filename)
+        delay = int(hashlib.sha256(serial.encode("utf-8")).hexdigest()[0:2], 16) % 21
+        deadline = time.time() + delay
+        while time.time() < deadline:
+            time.sleep(min(3, max(0, deadline - time.time())))
+            if peer_cache.fetch(config, filename, destination):
+                if not expected_sha256 or sha256_file(destination) == str(expected_sha256).lower():
+                    return
+                os.unlink(destination)
+    download_video(url, destination, expected_sha256)
 
 
 def local_datetime(iso_time, timezone_name):
@@ -611,12 +758,20 @@ def classify_movies(api_movies, manual_movies, today=None, show_leaving_soon=Tru
 def managed_cache_file(filename):
     return bool(
         re.match(r"^poster-(?:\d+|[a-f0-9]{64})\.", filename) or
-        re.match(r"^qr-[a-f0-9]+\.png$", filename)
+        re.match(r"^qr-[a-f0-9]+\.png$", filename) or
+        re.match(r"^video-[a-f0-9]{64}\.mp4$", filename)
     )
 
 
+def cache_paths(filename):
+    paths = [os.path.join(ROOT, filename)]
+    if filename.startswith("video-"):
+        paths.append(os.path.join(VIDEO_CACHE, filename))
+    return paths
+
+
 def clean_inactive_cache(active_files, now=None):
-    """Delete cached artwork two days after it last appeared in the catalog."""
+    """Delete cached campaign media two days after it last appeared in the catalog."""
     now = int(now if now is not None else time.time())
     if not os.path.isdir(SCRATCH):
         os.makedirs(SCRATCH)
@@ -625,7 +780,10 @@ def clean_inactive_cache(active_files, now=None):
         state = {}
     for filename in active_files:
         state[filename] = now
-    for filename in os.listdir(ROOT):
+    filenames = set(os.listdir(ROOT))
+    if os.path.isdir(VIDEO_CACHE):
+        filenames.update(os.listdir(VIDEO_CACHE))
+    for filename in filenames:
         if not managed_cache_file(filename) or filename in active_files:
             continue
         try:
@@ -636,13 +794,14 @@ def clean_inactive_cache(active_files, now=None):
             state[filename] = last_active
         if now - last_active < CACHE_RETENTION_SECONDS:
             continue
-        try:
-            os.unlink(os.path.join(ROOT, filename))
-            state.pop(filename, None)
-        except OSError:
-            pass
+        for path in cache_paths(filename):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        state.pop(filename, None)
     for filename in list(state.keys()):
-        if not os.path.exists(os.path.join(ROOT, filename)):
+        if not any(os.path.exists(path) for path in cache_paths(filename)):
             state.pop(filename, None)
     atomic_json(CACHE_RETENTION_STATE, state)
 
@@ -695,7 +854,37 @@ def refresh(config):
     cache = read_json(cache_path, {})
     active_posters = set()
     active_qrs = set()
+    active_videos = set()
+    videos_ready = 0
+    video_errors = 0
     for movie in movies:
+        if movie.get("media_type") == "video":
+            video_url = movie.get("video_url")
+            movie["poster_file"] = None
+            movie["qr_file"] = None
+            movie["ticket_url"] = None
+            movie["video_file"] = None
+            if video_url:
+                filename = peer_cache.video_name(video_url)
+                if not os.path.isdir(VIDEO_CACHE):
+                    os.makedirs(VIDEO_CACHE)
+                cached = os.path.join(VIDEO_CACHE, filename)
+                published = os.path.join(ROOT, filename)
+                active_videos.add(filename)
+                try:
+                    if not os.path.exists(cached) and os.path.exists(published) and valid_mp4(published):
+                        publish_cached_file(published, cached)
+                    fetch_video_once(config, video_url, filename, cached, movie.get("video_sha256"))
+                    publish_cached_file(cached, published)
+                    if os.path.exists(published):
+                        movie["video_file"] = filename
+                        videos_ready += 1
+                except (HTTPError, URLError, IOError, OSError, ValueError) as error:
+                    video_errors += 1
+                    print("campaign video download failed for %s: %s" % (movie.get("title"), error))
+            else:
+                video_errors += 1
+            continue
         match = {}
         poster_url = movie.get("poster_url")
         if not poster_url:
@@ -736,7 +925,11 @@ def refresh(config):
         os.makedirs(SCRATCH)
     atomic_json(cache_path, cache)
     atomic_json(CATALOG, {"updated_at": int(time.time()), "movies": movies})
-    clean_inactive_cache(active_posters | active_qrs)
+    campaign_status = read_json(CAMPAIGN_STATUS, {})
+    campaign_status["videos_ready"] = videos_ready
+    campaign_status["video_errors"] = video_errors
+    write_campaign_status(campaign_status)
+    clean_inactive_cache(active_posters | active_qrs | active_videos)
 
 
 def main():

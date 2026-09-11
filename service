@@ -27,6 +27,7 @@ USER_AGENT = "CinemaShowcase-info-beamer/0.1"
 INDY_IMAGE_BASE = "https://indy-systems.imgix.net"
 CACHE_RETENTION_SECONDS = 2 * 24 * 60 * 60
 CACHE_RETENTION_STATE = os.path.join(SCRATCH, "content-retention.json")
+CAMPAIGN_STATUS = os.path.join(ROOT, "campaign-status.json")
 
 
 def read_json(path, default):
@@ -76,6 +77,30 @@ def normalize_http_url(value, label):
     return value
 
 
+def first_value(item, names):
+    for name in names:
+        value = item.get(name)
+        if value not in (None, "", []):
+            if isinstance(value, dict):
+                value = value.get("url") or value.get("public_url") or value.get("publicUrl")
+            if value not in (None, "", []):
+                return value
+    return None
+
+
+def location_value(value):
+    if isinstance(value, dict):
+        return value.get("site_id") or value.get("siteId") or value.get("indy_site_id") or value.get("indySiteId") or value.get("id")
+    return value
+
+
+def write_campaign_status(value):
+    try:
+        atomic_json(CAMPAIGN_STATUS, value)
+    except (IOError, OSError):
+        pass
+
+
 def campaign_orientation(config):
     orientation = str(config.get("campaign_orientation") or "auto").strip().lower()
     if orientation in ("vertical", "horizontal"):
@@ -91,6 +116,7 @@ def fetch_campaign_movies(config, site_id, today):
     """Load active static Cinema Showcase campaigns from the Lovable feed."""
     url = normalize_http_url(config.get("campaign_feed_url"), "Campaign Manager feed URL")
     if not url:
+        write_campaign_status({"ok": True, "enabled": False, "received": 0, "accepted": 0})
         return []
     orientation = campaign_orientation(config)
     token = str(config.get("campaign_api_token") or "").strip()
@@ -100,69 +126,100 @@ def fetch_campaign_movies(config, site_id, today):
             headers["apikey"] = token
         else:
             headers["Authorization"] = "Bearer " + token
-    payload = get_json(url, headers=headers, params={
-        "site_id": str(site_id),
-        "orientation": orientation,
-        "channel": "cinema_showcase",
-    })
-    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+    try:
+        payload = get_json(url, headers=headers, params={
+            "site_id": str(site_id),
+            "orientation": orientation,
+            "channel": "cinema_showcase",
+        })
+    except Exception as error:
+        write_campaign_status({"ok": False, "enabled": True, "error": str(error), "orientation": orientation})
+        raise
+    if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
         payload = payload["data"]
     if isinstance(payload, dict):
-        entries = payload.get("campaigns") or payload.get("movies") or []
+        entries = payload.get("campaigns") or payload.get("movies") or payload.get("items") or payload.get("results") or []
     else:
         entries = payload
     if not isinstance(entries, list):
         raise ValueError("Campaign Manager feed must contain a campaigns array")
 
     movies = []
+    rejected = {}
+    missing_artwork = 0
+    def reject(reason):
+        rejected[reason] = rejected.get(reason, 0) + 1
     for entry in entries:
         if not isinstance(entry, dict):
+            reject("not_an_object")
             continue
-        kind = str(entry.get("campaign_type") or entry.get("type") or "coming_soon_movie").lower()
+        kind = str(entry.get("campaign_type") or entry.get("campaignType") or entry.get("type") or "coming_soon_movie").lower()
         if kind not in ("coming_soon_movie", "cinema_showcase_movie", "coming_soon", "movie"):
+            reject("campaign_type")
             continue
-        media_type = str(entry.get("media_type") or "image").lower()
+        media_type = str(entry.get("media_type") or entry.get("mediaType") or "image").lower()
         if media_type not in ("image", "static_image"):
+            reject("media_type")
             continue
         channels = entry.get("channels")
-        if channels and isinstance(channels, list):
+        if channels:
+            if not isinstance(channels, list):
+                channels = re.split(r"[,\s]+", str(channels))
             normalized_channels = [str(value).lower() for value in channels]
             if "signage" not in normalized_channels and "cinema_showcase" not in normalized_channels:
+                reject("channel")
                 continue
-        locations = entry.get("location_ids") or entry.get("locations")
-        if locations and not truthy(entry.get("all_locations")):
+        locations = entry.get("location_ids") or entry.get("locationIds") or entry.get("locations")
+        all_locations = entry.get("all_locations") if "all_locations" in entry else entry.get("allLocations")
+        if locations and not truthy(all_locations):
             if not isinstance(locations, list):
                 locations = [locations]
-            if str(site_id) not in [str(value) for value in locations]:
+            if str(site_id) not in [str(location_value(value)) for value in locations]:
+                reject("location")
                 continue
-        active_from = entry.get("active_from") or entry.get("starts_at")
-        active_until = entry.get("active_until") or entry.get("ends_at")
+        active_from = entry.get("active_from") or entry.get("activeFrom") or entry.get("starts_at") or entry.get("startsAt")
+        active_until = entry.get("active_until") or entry.get("activeUntil") or entry.get("ends_at") or entry.get("endsAt")
         if active_from and str(active_from)[0:10] > today.isoformat():
+            reject("not_active_yet")
             continue
         if active_until and str(active_until)[0:10] < today.isoformat():
+            reject("expired")
             continue
 
-        title = str(entry.get("title") or entry.get("name") or "").strip()
+        title = str(entry.get("title") or entry.get("movie_title") or entry.get("movieTitle") or entry.get("name") or "").strip()
         if not title:
+            reject("missing_title")
             continue
         if orientation == "vertical":
-            artwork = entry.get("vertical_image_url") or entry.get("poster_url") or entry.get("horizontal_image_url")
+            artwork = first_value(entry, ("vertical_image_url", "verticalImageUrl", "vertical_image", "verticalImage", "portrait_url", "portraitUrl", "poster_url", "posterUrl", "image_url", "imageUrl", "horizontal_image_url", "horizontalImageUrl"))
         else:
-            artwork = entry.get("horizontal_image_url") or entry.get("poster_url") or entry.get("vertical_image_url")
-        ticket = entry.get("movie_url") or entry.get("ticket_url") or entry.get("url")
+            artwork = first_value(entry, ("horizontal_image_url", "horizontalImageUrl", "horizontal_image", "horizontalImage", "landscape_url", "landscapeUrl", "banner_url", "bannerUrl", "image_url", "imageUrl", "poster_url", "posterUrl", "vertical_image_url", "verticalImageUrl"))
+        if not artwork:
+            missing_artwork += 1
+        ticket = first_value(entry, ("movie_url", "movieUrl", "ticket_url", "ticketUrl", "url"))
         movie = {
             "title": title,
-            "release_date": entry.get("release_date") or entry.get("first_show_date") or entry.get("opens"),
+            "release_date": entry.get("release_date") or entry.get("releaseDate") or entry.get("first_show_date") or entry.get("firstShowDate") or entry.get("opens"),
             "poster_url": artwork,
             "ticket_url": ticket,
-            "url_slug": entry.get("url_slug") or entry.get("slug"),
-            "on_sale": truthy(entry.get("on_sale")),
+            "url_slug": entry.get("url_slug") or entry.get("urlSlug") or entry.get("slug"),
+            "on_sale": truthy(entry.get("on_sale") if "on_sale" in entry else entry.get("onSale")),
             "rating": entry.get("rating"),
             "showtimes": [],
             "source": "campaign_manager",
             "campaign_id": entry.get("id"),
         }
         movies.append(movie)
+    write_campaign_status({
+        "ok": True,
+        "enabled": True,
+        "orientation": orientation,
+        "site_id": site_id,
+        "received": len(entries),
+        "accepted": len(movies),
+        "missing_artwork": missing_artwork,
+        "rejected": rejected,
+    })
     return movies
 
 
@@ -572,6 +629,9 @@ def refresh(config):
         show_leaving_soon=config.get("show_leaving_soon", True),
     )
     if not movies:
+        campaign_status = read_json(CAMPAIGN_STATUS, {})
+        campaign_status["catalog_count"] = 0
+        write_campaign_status(campaign_status)
         atomic_json(CATALOG, read_json(os.path.join(ROOT, "catalog-fallback.json"), {"movies": []}))
         clean_inactive_cache(set())
         return
@@ -588,6 +648,11 @@ def refresh(config):
                 pass
         filtered.append(movie)
     movies = filtered
+    campaign_status = read_json(CAMPAIGN_STATUS, {})
+    campaign_status["catalog_count"] = len([
+        movie for movie in movies if movie.get("source") == "campaign_manager"
+    ])
+    write_campaign_status(campaign_status)
     token = str(config.get("tmdb_token") or "").strip()
     cache_path = os.path.join(SCRATCH, "tmdb-cache.json")
     cache = read_json(cache_path, {})

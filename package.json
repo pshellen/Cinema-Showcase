@@ -2,7 +2,7 @@
   "name": "Cinema Showcase",
   "author": "Cinema Showcase Project",
   "desc": "INDY Now Showing and Coming Soon signage with ticket QR codes",
-  "version": "0.14",
+  "version": "0.15",
   "nesting": {
     "parents": ["top-level"],
     "childs": []

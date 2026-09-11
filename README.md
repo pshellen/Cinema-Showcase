@@ -46,6 +46,8 @@ The feed may require an optional function token or Supabase publishable key. Pas
 
 Keep image URLs stable for the life of an artwork revision. When artwork changes, publish a new versioned URL such as `vertical-v2.jpg`; this gives the device reliable download-once caching without serving stale artwork.
 
+Version 0.15 accepts both a top-level array and common wrapped response shapes such as `{ "campaigns": [...] }`, `{ "data": [...] }`, and `{ "data": { "campaigns": [...] } }`. It also accepts snake_case and camelCase field names. Each successful refresh writes `campaign-status.json` with received, accepted, rejected, missing-artwork, and final-catalog counts so filtering can be diagnosed over SSH without exposing the API token.
+
 ## Ticket QR codes
 
 Every movie with an upcoming INDY performance is considered on sale. The service uses each XML feature ID to query INDY's public GraphQL endpoint for the movie's authoritative `urlSlug`. Its QR code points to the circuit-wide route `https://flagshipcinemas.com/movie/{url-slug}/`, without a location name, allowing the destination page to offer all participating locations. If the slug lookup is temporarily unavailable, a title-based slug is used as an offline fallback.

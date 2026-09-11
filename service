@@ -1,0 +1,413 @@
+#!/usr/bin/python2.7
+"""Fetch a venue schedule and enrich it with TMDB metadata/posters."""
+from __future__ import print_function
+
+import hashlib
+import json
+import os
+import re
+import time
+import calendar
+import peer_cache
+from datetime import date, datetime, timedelta
+from xml.etree import ElementTree
+try:
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError, URLError
+except ImportError:
+    from urllib import urlencode
+    from urllib2 import Request, urlopen, HTTPError, URLError
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SCRATCH = os.environ.get("SCRATCH") or os.path.join(ROOT, ".scratch")
+CATALOG = os.path.join(ROOT, "catalog.json")
+USER_AGENT = "CinemaShowcase-info-beamer/0.1"
+
+
+def read_json(path, default):
+    try:
+        with open(path, "r") as handle:
+            return json.load(handle)
+    except (IOError, OSError, ValueError):
+        return default
+
+
+def atomic_json(path, value):
+    temporary = path + ".new"
+    with open(temporary, "w") as handle:
+        json.dump(value, handle, separators=(",", ":"))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.rename(temporary, path)
+
+
+def get_json(url, headers=None, params=None, timeout=20):
+    request_headers = {"User-Agent": USER_AGENT}
+    request_headers.update(headers or {})
+    if params:
+        url += ("&" if "?" in url else "?") + urlencode(params)
+    response = urlopen(Request(url, headers=request_headers), timeout=timeout)
+    try:
+        return json.load(response)
+    finally:
+        response.close()
+
+
+def download(url, destination):
+    temporary = destination + ".new"
+    response = urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=30)
+    try:
+        with open(temporary, "wb") as output:
+            while True:
+                block = response.read(65536)
+                if not block:
+                    break
+                output.write(block)
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        response.close()
+    os.rename(temporary, destination)
+
+
+def local_datetime(iso_time, timezone_name):
+    stamp = calendar.timegm(time.strptime(str(iso_time)[0:19], "%Y-%m-%dT%H:%M:%S"))
+    previous = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = timezone_name
+        if hasattr(time, "tzset"):
+            time.tzset()
+        return datetime(*time.localtime(stamp)[:6])
+    finally:
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        if hasattr(time, "tzset"):
+            time.tzset()
+
+
+def venue_today(timezone_name):
+    previous = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = timezone_name
+        if hasattr(time, "tzset"):
+            time.tzset()
+        now = time.localtime()
+        return date(now.tm_year, now.tm_mon, now.tm_mday)
+    finally:
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        if hasattr(time, "tzset"):
+            time.tzset()
+
+
+def slugify(value):
+    value = str(value or "").lower().replace("&", " and ")
+    return re.sub(r"[^a-z0-9]+", "-", value).strip("-")
+
+
+def fetch_indy_movies(feed_url, site_id, timezone_name):
+    url = feed_url + ("&" if "?" in feed_url else "?") + urlencode({"site_id": site_id})
+    response = urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=30)
+    try:
+        root = ElementTree.fromstring(response.read())
+    finally:
+        response.close()
+    grouped = {}
+    order = []
+    today = venue_today(timezone_name)
+    for show in root.findall("show"):
+        feature = show.find("feature")
+        if feature is None or not feature.get("title") or not show.get("time"):
+            continue
+        key = str(feature.get("extId") or title_key(feature.get("title")))
+        if key not in grouped:
+            grouped[key] = {
+                "title": feature.get("title"),
+                "indy_id": feature.get("extId"),
+                "runtime": feature.get("runtime"),
+                "rating": feature.get("rating"),
+                "on_sale": True,
+                "url_slug": slugify(feature.get("title")),
+                "showtimes": [],
+                "_dates": [],
+                "_screens": [],
+            }
+            order.append(key)
+        movie = grouped[key]
+        local = local_datetime(show.get("time"), timezone_name)
+        movie["_dates"].append(local.date())
+        if local.date() == today:
+            hour = local.hour % 12 or 12
+            movie["showtimes"].append("%d:%02d %s" % (hour, local.minute, "PM" if local.hour >= 12 else "AM"))
+        if show.get("screenName") and show.get("screenName") not in movie["_screens"]:
+            movie["_screens"].append(show.get("screenName"))
+    movies = []
+    for key in order:
+        movie = grouped[key]
+        movie["first_show_date"] = min(movie.pop("_dates")).isoformat()
+        screens = movie.pop("_screens")
+        if len(screens) == 1:
+            movie["auditorium"] = screens[0]
+        movies.append(movie)
+    return movies
+
+
+def ticket_url(movie, config):
+    override = str(movie.get("ticket_url") or "").strip()
+    if override.startswith("https://") or override.startswith("http://"):
+        return override
+    if not movie.get("on_sale"):
+        return None
+    slug = str(movie.get("url_slug") or "").strip() or slugify(movie.get("title"))
+    base = str(config.get("ticket_base_url") or "").strip().rstrip("/")
+    if not base or not slug:
+        return None
+    return "%s/movie/%s/" % (base, slug)
+
+
+def ensure_qr(movie, config):
+    url = ticket_url(movie, config)
+    if not url or not config.get("show_qr_codes", True):
+        movie["ticket_url"] = url
+        movie["qr_file"] = None
+        return None
+    filename = "qr-%s.png" % hashlib.sha1(url.encode("utf-8")).hexdigest()
+    destination = os.path.join(ROOT, filename)
+    if not os.path.exists(destination):
+        qr_url = "https://api.qrserver.com/v1/create-qr-code/?" + urlencode({
+            "size": "320x320", "format": "png", "margin": 12, "data": url,
+        })
+        download(qr_url, destination)
+    movie["ticket_url"] = url
+    movie["qr_file"] = filename if os.path.exists(destination) else None
+    return filename
+
+
+def tmdb_match(movie, token, cache):
+    title = str(movie.get("title") or "").strip()
+    if not title or not token:
+        return {}
+    year = movie.get("release_year") or movie.get("year")
+    tmdb_override = str(movie.get("tmdb_id") or "").strip()
+    cache_key = hashlib.sha1((title + "|" + str(year or "") + "|" + tmdb_override).encode("utf-8")).hexdigest()
+    if cache_key in cache:
+        return cache[cache_key]
+    if tmdb_override.isdigit():
+        payload = get_json(
+            "https://api.themoviedb.org/3/movie/" + tmdb_override,
+            {"Authorization": "Bearer " + token, "Accept": "application/json"},
+            params={"language": "en-US"},
+        )
+        match = {
+            "tmdb_id": payload.get("id"),
+            "overview": payload.get("overview"),
+            "poster_path": payload.get("poster_path"),
+            "release_date": payload.get("release_date"),
+        }
+        cache[cache_key] = match
+        return match
+    params = {"query": title, "include_adult": "false", "language": "en-US"}
+    if year:
+        params["primary_release_year"] = str(year)
+    payload = get_json(
+        "https://api.themoviedb.org/3/search/movie",
+        {"Authorization": "Bearer " + token, "Accept": "application/json"},
+        params=params,
+    )
+    results = payload.get("results") or []
+    result = results[0] if results else {}
+    match = {
+        "tmdb_id": result.get("id"),
+        "overview": result.get("overview"),
+        "poster_path": result.get("poster_path"),
+        "release_date": result.get("release_date"),
+    }
+    cache[cache_key] = match
+    return match
+
+
+def normalize_feed(payload):
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    if isinstance(payload, dict):
+        movies = payload.get("movies") or payload.get("films") or payload.get("nowPlaying") or payload.get("showings") or payload
+    else:
+        movies = payload
+    if not isinstance(movies, list):
+        raise ValueError("schedule feed must contain a movies array")
+    normalized = []
+    for item in movies:
+        if not isinstance(item, dict) or not str(item.get("title") or "").strip():
+            continue
+        movie = dict(item.get("movie") or item)
+        raw_showtimes = item.get("showtimes") or item.get("performances") or item.get("sessions") or movie.get("showtimes") or []
+        first_show_date = movie.get("first_show_date") or movie.get("start_date")
+        times = []
+        for showing in raw_showtimes if isinstance(raw_showtimes, list) else [raw_showtimes]:
+            if isinstance(showing, dict):
+                starts_at = showing.get("starts_at") or showing.get("startTime") or showing.get("start_time") or showing.get("dateTime")
+                if starts_at:
+                    candidate_date = str(starts_at)[0:10]
+                    if re.match(r"^\d{4}-\d{2}-\d{2}$", candidate_date):
+                        if not first_show_date or candidate_date < str(first_show_date)[0:10]:
+                            first_show_date = candidate_date
+                    times.append(str(showing.get("display_time") or showing.get("time") or starts_at))
+            elif showing:
+                times.append(str(showing))
+        if first_show_date:
+            movie["first_show_date"] = str(first_show_date)[0:10]
+        status = str(movie.get("status") or "now_showing").lower().replace(" ", "_")
+        movie["status"] = "coming_soon" if status in ("coming_soon", "advance", "future") else "now_showing"
+        movie["showtimes"] = times
+        normalized.append(movie)
+    return normalized
+
+
+def title_key(title):
+    return re.sub(r"[^a-z0-9]+", "", str(title or "").lower())
+
+
+def classify_movies(api_movies, manual_movies, today=None):
+    today = today or date.today()
+    tomorrow = today + timedelta(days=1)
+    merged = {}
+    order = []
+    for source, manual in ((api_movies, False), (manual_movies or [], True)):
+        for value in source:
+            if not isinstance(value, dict) or not str(value.get("title") or "").strip():
+                continue
+            key = title_key(value.get("title"))
+            if key not in merged:
+                merged[key] = dict(value)
+                order.append(key)
+            elif manual:
+                for field, field_value in value.items():
+                    if field_value not in (None, "", []):
+                        merged[key][field] = field_value
+            movie = merged[key]
+            date_text = movie.get("first_show_date") or movie.get("start_date") or movie.get("release_date") or movie.get("opens")
+            if date_text:
+                try:
+                    starts = datetime.strptime(str(date_text)[0:10], "%Y-%m-%d").date()
+                    movie["first_show_date"] = starts.isoformat()
+                    if starts <= today:
+                        movie["status"] = "now_showing"
+                    elif starts == tomorrow:
+                        movie["status"] = "starts_tomorrow"
+                    else:
+                        movie["status"] = "coming_soon"
+                except ValueError:
+                    pass
+            if manual and not movie.get("showtimes"):
+                movie["showtimes"] = []
+    return [merged[key] for key in order]
+
+
+def refresh(config):
+    feed_setting = config.get("indy_feed_url")
+    if feed_setting is None:
+        feed_setting = "https://api-us.indy.systems/tms/upcoming_showings.xml"
+    feed_url = str(feed_setting).strip()
+    site_id = int(config.get("indy_site_id") or 352)
+    timezone_name = str(config.get("venue_timezone") or "America/New_York")
+    movies = fetch_indy_movies(feed_url, site_id, timezone_name) if feed_url else []
+    today = venue_today(timezone_name)
+    movies = classify_movies(movies, config.get("manual_movies") or [], today=today)
+    if not movies:
+        atomic_json(CATALOG, read_json(os.path.join(ROOT, "catalog-fallback.json"), {"movies": []}))
+        return
+    horizon = max(1, min(365, int(config.get("coming_soon_days") or 90)))
+    cutoff = today + timedelta(days=horizon)
+    filtered = []
+    for movie in movies:
+        date_text = movie.get("first_show_date") or movie.get("release_date") or movie.get("opens")
+        if movie.get("status") == "coming_soon" and date_text:
+            try:
+                if datetime.strptime(str(date_text)[0:10], "%Y-%m-%d").date() > cutoff:
+                    continue
+            except ValueError:
+                pass
+        filtered.append(movie)
+    movies = filtered
+    token = str(config.get("tmdb_token") or "").strip()
+    cache_path = os.path.join(SCRATCH, "tmdb-cache.json")
+    cache = read_json(cache_path, {})
+    active_posters = set()
+    active_qrs = set()
+    for movie in movies:
+        try:
+            match = tmdb_match(movie, token, cache)
+        except (HTTPError, URLError, ValueError) as error:
+            print("TMDB lookup failed for %s: %s" % (movie.get("title"), error))
+            match = {}
+        for key in ("tmdb_id", "overview", "release_date"):
+            if not movie.get(key) and match.get(key):
+                movie[key] = match[key]
+        poster_path = movie.get("poster_path") or match.get("poster_path")
+        tmdb_id = movie.get("tmdb_id") or match.get("tmdb_id")
+        if poster_path and tmdb_id:
+            poster_url = "https://image.tmdb.org/t/p/w780" + poster_path
+            filename = peer_cache.poster_name(poster_url)
+            destination = os.path.join(ROOT, filename)
+            active_posters.add(filename)
+            if not os.path.exists(destination):
+                try:
+                    if not peer_cache.fetch(config, filename, destination):
+                        download(poster_url, destination)
+                except (HTTPError, URLError) as error:
+                    print("poster download failed for %s: %s" % (movie.get("title"), error))
+            movie["poster_file"] = filename if os.path.exists(destination) else None
+        else:
+            movie["poster_file"] = None
+        try:
+            qr_filename = ensure_qr(movie, config)
+            if qr_filename:
+                active_qrs.add(qr_filename)
+        except (HTTPError, URLError) as error:
+            movie["qr_file"] = None
+            print("QR download failed for %s: %s" % (movie.get("title"), error))
+    if not os.path.isdir(SCRATCH):
+        os.makedirs(SCRATCH)
+    atomic_json(cache_path, cache)
+    atomic_json(CATALOG, {"updated_at": int(time.time()), "movies": movies})
+    for filename in os.listdir(ROOT):
+        if re.match(r"^poster-(?:\d+|[a-f0-9]{64})\.", filename) and filename not in active_posters:
+            try:
+                os.unlink(os.path.join(ROOT, filename))
+            except OSError:
+                pass
+        if re.match(r"^qr-[a-f0-9]+\.png$", filename) and filename not in active_qrs:
+            try:
+                os.unlink(os.path.join(ROOT, filename))
+            except OSError:
+                pass
+
+
+def main():
+    if not os.path.isdir(SCRATCH):
+        os.makedirs(SCRATCH)
+    failures = 0
+    peer_cache.start(ROOT, lambda: read_json(os.path.join(ROOT, "config.json"), {}))
+    while True:
+        config = read_json(os.path.join(ROOT, "config.json"), {})
+        interval = max(2, min(1440, int(config.get("refresh_minutes") or 15)))
+        try:
+            refresh(config)
+            atomic_json(os.path.join(ROOT, "connection.json"), {"ok": True})
+            failures = 0
+            delay = interval * 60
+        except (IOError, OSError, ValueError, ElementTree.ParseError, HTTPError, URLError) as error:
+            failures += 1
+            atomic_json(os.path.join(ROOT, "connection.json"), {"ok": False})
+            print("refresh failed: %s" % error)
+            delay = min(interval * 60, 30 * (2 ** min(failures, 5)))
+        time.sleep(delay)
+
+
+if __name__ == "__main__":
+    main()

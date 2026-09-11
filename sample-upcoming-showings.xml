@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schedule timestamp="2026-09-11T12:00:00Z">
+  <show extId="1001" screenId="1" screenName="Screen 1" time="2026-09-11T19:00:00Z" tags="" seatsSold="4" seatsAvailable="96">
+    <feature extId="501" title="Current Feature" runtime="124" template="[]" rating="PG-13"/>
+  </show>
+  <show extId="1002" screenId="2" screenName="Screen 2" time="2026-09-12T20:00:00Z" tags="" seatsSold="0" seatsAvailable="80">
+    <feature extId="502" title="Tomorrow Feature" runtime="98" template="[]" rating="PG"/>
+  </show>
+  <show extId="1003" screenId="3" screenName="Screen 3" time="2026-09-18T22:00:00Z" tags="" seatsSold="0" seatsAvailable="72">
+    <feature extId="503" title="Coming Feature" runtime="110" template="[]" rating="R"/>
+  </show>
+</schedule>

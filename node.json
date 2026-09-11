@@ -1,0 +1,159 @@
+{
+  "name": "Cinema Showcase",
+  "permissions": {
+    "network": "Fetches schedules and artwork; shares authenticated poster downloads with configured LAN peers on TCP 18742"
+  },
+  "options": [
+    {
+      "title": "Share posters over local network",
+      "name": "peer_sharing",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "title": "Nearby device IP addresses (comma separated)",
+      "name": "peer_addresses",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "title": "Venue name",
+      "name": "venue_name",
+      "type": "string",
+      "default": "Our Cinema"
+    },
+    {
+      "title": "INDY site ID",
+      "name": "indy_site_id",
+      "type": "integer",
+      "default": 352,
+      "min": 1
+    },
+    {
+      "title": "INDY upcoming feed",
+      "name": "indy_feed_url",
+      "type": "string",
+      "default": "https://api-us.indy.systems/tms/upcoming_showings.xml"
+    },
+    {
+      "title": "Ticket website base URL",
+      "name": "ticket_base_url",
+      "type": "string",
+      "default": "https://flagshipcinemas.com"
+    },
+    {
+      "title": "Venue timezone",
+      "name": "venue_timezone",
+      "type": "string",
+      "default": "America/New_York"
+    },
+    {
+      "title": "TMDB API read token",
+      "name": "tmdb_token",
+      "type": "string",
+      "ui_type": "password",
+      "default": ""
+    },
+    {
+      "title": "Feed refresh interval",
+      "name": "refresh_minutes",
+      "type": "integer",
+      "default": 15,
+      "min": 2,
+      "max": 1440
+    },
+    {
+      "title": "Movie slide duration",
+      "name": "movie_duration",
+      "type": "duration",
+      "default": 12
+    },
+    {
+      "title": "Child package duration",
+      "name": "child_duration",
+      "type": "duration",
+      "default": 15
+    },
+    {
+      "title": "Coming Soon enabled",
+      "name": "show_coming_soon",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "title": "Coming Soon horizon (days)",
+      "name": "coming_soon_days",
+      "type": "integer",
+      "default": 90,
+      "min": 1,
+      "max": 365
+    },
+    {
+      "title": "Show ticket QR codes",
+      "name": "show_qr_codes",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "title": "Manual movie roster",
+      "name": "manual_movies",
+      "type": "list",
+      "itemname": "Movie",
+      "items": [
+        {
+          "title": "Movie title",
+          "name": "title",
+          "type": "string",
+          "default": ""
+        },
+        {
+          "title": "Start / release date",
+          "name": "release_date",
+          "type": "string",
+          "default": "2026-01-01",
+          "placeholder": "YYYY-MM-DD"
+        },
+        {
+          "title": "TMDB ID override",
+          "name": "tmdb_id",
+          "type": "string",
+          "default": "",
+          "placeholder": "Optional"
+        },
+        {
+          "title": "Rating",
+          "name": "rating",
+          "type": "string",
+          "default": ""
+        },
+        {
+          "title": "On sale",
+          "name": "on_sale",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "title": "Movie URL slug",
+          "name": "url_slug",
+          "type": "string",
+          "default": "",
+          "placeholder": "example-movie"
+        },
+        {
+          "title": "Full ticket URL override",
+          "name": "ticket_url",
+          "type": "string",
+          "default": "",
+          "placeholder": "Optional https://..."
+        }
+      ]
+    }
+  ],
+  "scratch_scope": "instance",
+  "optional": [
+    "README.md",
+    "sample-upcoming-showings.xml",
+    "OFL.txt",
+    "tests/.*"
+  ]
+}

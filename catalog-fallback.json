@@ -1,0 +1,19 @@
+{
+  "updated_at": "demo",
+  "movies": [
+    {
+      "title": "Cinema Showcase",
+      "status": "now_showing",
+      "tagline": "Connect a schedule feed to begin",
+      "showtimes": ["NOW SHOWING"],
+      "poster_file": null
+    },
+    {
+      "title": "Coming Soon",
+      "status": "coming_soon",
+      "tagline": "Future bookings appear automatically",
+      "showtimes": [],
+      "poster_file": null
+    }
+  ]
+}

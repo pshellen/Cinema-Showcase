@@ -44,7 +44,11 @@ For production, use the cinema POS/TMS/booking system as the schedule authority.
 
 ## Embedded info-beamer playlist
 
-Choose an existing Hosted playlist with the **Info-beamer playlist** picker. Hosted expands that playlist into its images, videos, durations, and schedules, matching the playlist mechanism used by info-beamer's HDv2 player. Cinema Showcase interleaves active items with the poster roster and keeps their configured playback durations. Video audio is disabled by default and can be enabled with **Playlist video audio**. Create and maintain the source playlist in the account's **Playlists** section; no nested child package is required.
+Choose an existing Hosted playlist with the **Primary info-beamer playlist** picker. Use **Additional info-beamer playlists** to add any number of other Hosted playlists. Their active items are combined round-robin, preserving the order within each source playlist, then interleaved with the poster roster. This prevents a large playlist from crowding out smaller ones.
+
+Hosted expands each selection into its images, videos, durations, and schedules, matching the playlist mechanism used by info-beamer's HDv2 player. Cinema Showcase keeps the configured playback durations. Video audio is disabled by default and can be enabled with **Playlist video audio**. Create and maintain the source playlists in the account's **Playlists** section; no nested child packages are required.
+
+**Playlist media scaling** defaults to **Fit and center**. The complete image or video is proportionally scaled into the display and centered, with black letterboxing where its aspect ratio differs from the screen. **Fill screen (crop)** is available when edge-to-edge playback is preferred.
 
 After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.
 

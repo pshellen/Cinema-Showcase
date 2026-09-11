@@ -17,6 +17,7 @@ local config = {
     venue_name = "Our Cinema",
     movie_duration = 12,
     interstitial_playlist = {},
+    additional_playlists = {},
     show_coming_soon = true,
 }
 local movies = {}
@@ -57,18 +58,31 @@ end
 
 local function playlist_media()
     local result = {}
-    for _, item in ipairs(config.interstitial_playlist or {}) do
-        local asset = item.asset or item.file
-        if asset and asset.asset_name and schedule_is_active(item) then
-            local duration = tonumber(item.duration) or 0
-            if duration <= 0 and asset.metadata then
-                duration = tonumber(asset.metadata.duration) or 0
+    local sources = {config.interstitial_playlist or {}}
+    for _, source in ipairs(config.additional_playlists or {}) do
+        table.insert(sources, source.playlist or {})
+    end
+    local widest = 0
+    for _, source in ipairs(sources) do
+        widest = math.max(widest, #source)
+    end
+    for index = 1, widest do
+        for _, source in ipairs(sources) do
+            local item = source[index]
+            if item then
+                local asset = item.asset or item.file
+                if asset and asset.asset_name and schedule_is_active(item) then
+                    local duration = tonumber(item.duration) or 0
+                    if duration <= 0 and asset.metadata then
+                        duration = tonumber(asset.metadata.duration) or 0
+                    end
+                    table.insert(result, {
+                        kind = "media",
+                        asset = asset,
+                        duration = math.max(2, duration > 0 and duration or 10),
+                    })
+                end
             end
-            table.insert(result, {
-                kind = "media",
-                asset = asset,
-                duration = math.max(2, duration > 0 and duration or 10),
-            })
         end
     end
     return result
@@ -151,6 +165,12 @@ local function load_media_image(asset)
     end
 end
 
+local function load_playlist_images(playlist)
+    for _, item in ipairs(playlist or {}) do
+        load_media_image(item.asset or item.file)
+    end
+end
+
 util.json_watch("config.json", function(updated)
     config = updated
     local rotation = tonumber(config.rotation) or 0
@@ -159,8 +179,9 @@ util.json_watch("config.json", function(updated)
     end
     screen_transform = util.screen_transform(rotation)
     config.movie_duration = math.max(2, tonumber(config.movie_duration) or 12)
-    for _, item in ipairs(config.interstitial_playlist or {}) do
-        load_media_image(item.asset or item.file)
+    load_playlist_images(config.interstitial_playlist)
+    for _, source in ipairs(config.additional_playlists or {}) do
+        load_playlist_images(source.playlist)
     end
     rebuild_sequence()
 end)
@@ -282,6 +303,23 @@ local function stop_video()
     end
 end
 
+local function draw_playlist_resource(res, alpha)
+    if config.playlist_scaling == "fill" then
+        util.draw_correct(res, 0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, alpha)
+        return
+    end
+    local _, media_width, media_height = res:state()
+    if not media_width or not media_height or media_width <= 0 or media_height <= 0 then
+        return
+    end
+    local scale = math.min(NATIVE_WIDTH / media_width, NATIVE_HEIGHT / media_height)
+    local draw_width = media_width * scale
+    local draw_height = media_height * scale
+    local x1 = (NATIVE_WIDTH - draw_width) / 2
+    local y1 = (NATIVE_HEIGHT - draw_height) / 2
+    res:draw(x1, y1, x1 + draw_width, y1 + draw_height, alpha)
+end
+
 local function draw_media(item, alpha)
     local asset = item.asset or {}
     local filename = asset.asset_name
@@ -297,14 +335,14 @@ local function draw_media(item, alpha)
             active_video_name = filename
         end
         if active_video then
-            util.draw_correct(active_video, 0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, alpha)
+            draw_playlist_resource(active_video, alpha)
         end
     elseif asset.type == "image" and filename then
         stop_video()
         load_media_image(asset)
         local image = media_images[filename]
         if image and image:state() == "loaded" then
-            util.draw_correct(image, 0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, alpha)
+            draw_playlist_resource(image, alpha)
         end
     else
         stop_video()

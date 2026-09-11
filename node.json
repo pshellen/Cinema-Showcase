@@ -6,12 +6,26 @@
   "expand_schedules": true,
   "options": [
     {
-      "title": "Info-beamer playlist",
+      "title": "Primary info-beamer playlist",
       "ui_width": 8,
       "name": "interstitial_playlist",
       "type": "playlist",
-      "hint": "Choose a playlist from the Playlists section to mix between movie posters",
+      "hint": "Choose the first playlist to mix between movie posters",
       "doc_link": true
+    },
+    {
+      "title": "Additional info-beamer playlists",
+      "name": "additional_playlists",
+      "type": "list",
+      "itemname": "Playlist",
+      "hint": "Add as many additional Hosted playlists as needed",
+      "items": [
+        {
+          "title": "Playlist",
+          "name": "playlist",
+          "type": "playlist"
+        }
+      ]
     },
     {
       "title": "Display rotation",
@@ -97,6 +111,17 @@
       "name": "playlist_audio",
       "type": "boolean",
       "default": false
+    },
+    {
+      "title": "Playlist media scaling",
+      "name": "playlist_scaling",
+      "type": "select",
+      "hint": "Fit keeps the complete image centered; Fill crops it to cover the screen",
+      "options": [
+        ["fit", "Fit and center"],
+        ["fill", "Fill screen (crop)"]
+      ],
+      "default": "fit"
     },
     {
       "title": "Coming Soon enabled",

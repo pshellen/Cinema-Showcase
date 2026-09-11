@@ -64,6 +64,18 @@ def truthy(value):
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def normalize_http_url(value, label):
+    """Accept a plain URL and defensively unwrap Markdown links pasted from chat."""
+    value = str(value or "").strip()
+    markdown = re.match(r"^\[[^\]]*\]\((https?://[^)]+)\)$", value)
+    if markdown:
+        value = markdown.group(1)
+    value = value.replace("\\_", "_").replace("\\&", "&")
+    if value and not (value.startswith("https://") or value.startswith("http://")):
+        raise ValueError("%s must be a plain http(s) URL, not formatted text" % label)
+    return value
+
+
 def campaign_orientation(config):
     orientation = str(config.get("campaign_orientation") or "auto").strip().lower()
     if orientation in ("vertical", "horizontal"):
@@ -77,14 +89,17 @@ def campaign_orientation(config):
 
 def fetch_campaign_movies(config, site_id, today):
     """Load active static Cinema Showcase campaigns from the Lovable feed."""
-    url = str(config.get("campaign_feed_url") or "").strip()
+    url = normalize_http_url(config.get("campaign_feed_url"), "Campaign Manager feed URL")
     if not url:
         return []
     orientation = campaign_orientation(config)
     token = str(config.get("campaign_api_token") or "").strip()
     headers = {"Accept": "application/json"}
     if token:
-        headers["Authorization"] = "Bearer " + token
+        if token.startswith("sb_publishable_") or token.startswith("sb_secret_"):
+            headers["apikey"] = token
+        else:
+            headers["Authorization"] = "Bearer " + token
     payload = get_json(url, headers=headers, params={
         "site_id": str(site_id),
         "orientation": orientation,

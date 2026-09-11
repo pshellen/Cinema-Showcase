@@ -77,7 +77,7 @@
       "title": "Campaign Manager feed URL",
       "name": "campaign_feed_url",
       "type": "string",
-      "hint": "Public or token-protected Lovable JSON endpoint for Cinema Showcase movies",
+      "hint": "Paste only the plain Supabase/Lovable endpoint URL, without Markdown brackets or link formatting",
       "default": ""
     },
     {
@@ -85,7 +85,7 @@
       "name": "campaign_api_token",
       "type": "string",
       "ui_type": "password",
-      "hint": "Optional Bearer token; leave blank for a public read-only feed",
+      "hint": "Optional function token or Supabase publishable key; never use a service-role key on a player",
       "default": ""
     },
     {

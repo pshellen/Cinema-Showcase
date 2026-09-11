@@ -42,7 +42,9 @@ Coming Soon movies are managed in Lovable and returned by the configured JSON en
 
 In **Auto** artwork mode, display rotations 90° and 270° request `vertical` and use `vertical_image_url`; rotations 0° and 180° request `horizontal` and use `horizontal_image_url`. The opposite variant is only a fallback when the requested one is absent. Campaigns are static images only. `active_from` and `active_until` control campaign availability, while `release_date` controls the **Now Showing**, **Starts Tomorrow**, or **Coming Soon** label.
 
-The feed may require an optional Bearer token. Keep image URLs stable for the life of an artwork revision. When artwork changes, publish a new versioned URL such as `vertical-v2.jpg`; this gives the device reliable download-once caching without serving stale artwork.
+The feed may require an optional function token or Supabase publishable key. Paste a plain endpoint URL such as `https://PROJECT.supabase.co/functions/v1/signage-campaigns`, not Markdown link syntax. Version 0.14 defensively unwraps a Markdown link if one is pasted accidentally. Modern `sb_publishable_...` keys are sent in Supabase's `apikey` header; other configured function tokens are sent as Bearer credentials. Never store a service-role key on a signage player.
+
+Keep image URLs stable for the life of an artwork revision. When artwork changes, publish a new versioned URL such as `vertical-v2.jpg`; this gives the device reliable download-once caching without serving stale artwork.
 
 ## Ticket QR codes
 

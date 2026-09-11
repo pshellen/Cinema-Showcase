@@ -1,5 +1,5 @@
 #!/usr/bin/python2.7
-"""Fetch a venue schedule and enrich it with TMDB metadata/posters."""
+"""Fetch an INDY schedule, movie slugs and poster artwork for signage."""
 from __future__ import print_function
 
 import hashlib
@@ -12,17 +12,19 @@ import peer_cache
 from datetime import date, datetime, timedelta
 from xml.etree import ElementTree
 try:
-    from urllib.parse import urlencode
+    from urllib.parse import urlencode, urlparse
     from urllib.request import Request, urlopen
     from urllib.error import HTTPError, URLError
 except ImportError:
     from urllib import urlencode
+    from urlparse import urlparse
     from urllib2 import Request, urlopen, HTTPError, URLError
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SCRATCH = os.environ.get("SCRATCH") or os.path.join(ROOT, ".scratch")
 CATALOG = os.path.join(ROOT, "catalog.json")
 USER_AGENT = "CinemaShowcase-info-beamer/0.1"
+INDY_IMAGE_BASE = "https://indy-systems.imgix.net"
 
 
 def read_json(path, default):
@@ -110,6 +112,65 @@ def slugify(value):
     return re.sub(r"[^a-z0-9]+", "-", value).strip("-")
 
 
+def fetch_indy_movie_details(feed_url, site_id, movie_ids):
+    """Resolve INDY movie IDs to their public URL slugs and poster artwork."""
+    parsed = urlparse(feed_url)
+    if not parsed.scheme or not parsed.netloc:
+        return {}
+    graphql_url = "%s://%s/graphql" % (parsed.scheme, parsed.netloc)
+    ids = []
+    for movie_id in movie_ids:
+        movie_id = str(movie_id or "").strip()
+        if movie_id.isdigit() and movie_id not in ids:
+            ids.append(movie_id)
+    details = {}
+    for start in range(0, len(ids), 50):
+        batch = ids[start:start + 50]
+        fields = [
+            "m%s: movie(id: %s) { id urlSlug posterImage }" % (movie_id, movie_id)
+            for movie_id in batch
+        ]
+        payload = json.dumps({
+            "query": "query CinemaShowcaseMovies { %s }" % " ".join(fields),
+        }).encode("utf-8")
+        response = urlopen(Request(graphql_url, data=payload, headers={
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/json",
+            "Origin": "https://signage-us.indy.systems",
+            "site-id": str(site_id),
+            "client-type": "signage",
+        }), timeout=30)
+        try:
+            result = json.load(response)
+        finally:
+            response.close()
+        for value in (result.get("data") or {}).values():
+            if not value or not value.get("id"):
+                continue
+            movie_id = str(value["id"])
+            poster_image = str(value.get("posterImage") or "").strip()
+            if poster_image.startswith("https://") or poster_image.startswith("http://"):
+                poster_url = poster_image
+            elif poster_image:
+                poster_url = "%s/%s?fit=crop&w=780&h=1170&fm=jpeg&auto=format,compress&cs=origin" % (
+                    INDY_IMAGE_BASE, poster_image
+                )
+            else:
+                poster_url = None
+            details[movie_id] = {
+                "url_slug": str(value.get("urlSlug") or "").strip() or None,
+                "poster_image": poster_image or None,
+                "poster_url": poster_url,
+            }
+    return details
+
+
+def fetch_indy_url_slugs(feed_url, site_id, movie_ids):
+    """Compatibility helper returning only resolved INDY URL slugs."""
+    details = fetch_indy_movie_details(feed_url, site_id, movie_ids)
+    return dict((movie_id, value["url_slug"]) for movie_id, value in details.items() if value.get("url_slug"))
+
+
 def fetch_indy_movies(feed_url, site_id, timezone_name):
     url = feed_url + ("&" if "?" in feed_url else "?") + urlencode({"site_id": site_id})
     response = urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=30)
@@ -132,7 +193,7 @@ def fetch_indy_movies(feed_url, site_id, timezone_name):
                 "runtime": feature.get("runtime"),
                 "rating": feature.get("rating"),
                 "on_sale": True,
-                "url_slug": slugify(feature.get("title")),
+                "url_slug": feature.get("urlSlug") or feature.get("url_slug") or feature.get("slug"),
                 "showtimes": [],
                 "_dates": [],
                 "_screens": [],
@@ -146,9 +207,18 @@ def fetch_indy_movies(feed_url, site_id, timezone_name):
             movie["showtimes"].append("%d:%02d %s" % (hour, local.minute, "PM" if local.hour >= 12 else "AM"))
         if show.get("screenName") and show.get("screenName") not in movie["_screens"]:
             movie["_screens"].append(show.get("screenName"))
+    try:
+        indy_details = fetch_indy_movie_details(feed_url, site_id, order)
+    except (HTTPError, URLError, ValueError) as error:
+        print("INDY movie detail lookup failed: %s" % error)
+        indy_details = {}
     movies = []
     for key in order:
         movie = grouped[key]
+        detail = indy_details.get(key) or {}
+        movie["url_slug"] = movie.get("url_slug") or detail.get("url_slug") or slugify(movie.get("title"))
+        movie["indy_poster_image"] = detail.get("poster_image")
+        movie["poster_url"] = detail.get("poster_url")
         movie["first_show_date"] = min(movie.pop("_dates")).isoformat()
         screens = movie.pop("_screens")
         if len(screens) == 1:
@@ -340,18 +410,23 @@ def refresh(config):
     active_posters = set()
     active_qrs = set()
     for movie in movies:
-        try:
-            match = tmdb_match(movie, token, cache)
-        except (HTTPError, URLError, ValueError) as error:
-            print("TMDB lookup failed for %s: %s" % (movie.get("title"), error))
-            match = {}
+        match = {}
+        poster_url = movie.get("poster_url")
+        if not poster_url:
+            try:
+                match = tmdb_match(movie, token, cache)
+            except (HTTPError, URLError, ValueError) as error:
+                print("TMDB fallback lookup failed for %s: %s" % (movie.get("title"), error))
+                match = {}
         for key in ("tmdb_id", "overview", "release_date"):
             if not movie.get(key) and match.get(key):
                 movie[key] = match[key]
-        poster_path = movie.get("poster_path") or match.get("poster_path")
-        tmdb_id = movie.get("tmdb_id") or match.get("tmdb_id")
-        if poster_path and tmdb_id:
-            poster_url = "https://image.tmdb.org/t/p/w780" + poster_path
+        if not poster_url:
+            poster_path = movie.get("poster_path") or match.get("poster_path")
+            tmdb_id = movie.get("tmdb_id") or match.get("tmdb_id")
+            if poster_path and tmdb_id:
+                poster_url = "https://image.tmdb.org/t/p/w780" + poster_path
+        if poster_url:
             filename = peer_cache.poster_name(poster_url)
             destination = os.path.join(ROOT, filename)
             active_posters.add(filename)

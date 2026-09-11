@@ -24,7 +24,7 @@ Cinema Showcase promotes current and upcoming movies using the venue's INDY sche
 
 ## Installation
 
-Import this directory into info-beamer Hosted as a package, then create a setup from it. Configure the INDY site ID and TMDB API read token. Choose a native info-beamer playlist in **Info-beamer playlist** to interleave its media with movie slides.
+Import this directory into info-beamer Hosted as a package, then create a setup from it. Configure the INDY site ID. No TMDB token is required for movies supplied by INDY. Choose a native info-beamer playlist in **Primary info-beamer playlist** to interleave its media with movie slides.
 
 The package service is compatible with the Python 2.7 runtime used by current info-beamer Hosted OS packages and with Python 3 for local testing. It is intentionally unprivileged and requests only the info-beamer `network` permission.
 
@@ -40,9 +40,11 @@ Use **Manual movie roster** in Hosted to enter a movie title and `YYYY-MM-DD` st
 
 ## Ticket QR codes
 
-Every movie with an upcoming INDY performance is considered on sale. Its QR code points to the circuit-wide route `https://flagshipcinemas.com/movie/{url-slug}/`, without a location name, allowing the destination page to offer all participating locations. Manual movies display a QR only when **On sale** is enabled. Their slug can be entered explicitly, and a full ticket URL override is available for exceptional routes.
+Every movie with an upcoming INDY performance is considered on sale. The service uses each XML feature ID to query INDY's public GraphQL endpoint for the movie's authoritative `urlSlug`. Its QR code points to the circuit-wide route `https://flagshipcinemas.com/movie/{url-slug}/`, without a location name, allowing the destination page to offer all participating locations. If the slug lookup is temporarily unavailable, a title-based slug is used as an offline fallback.
 
-For production, use the cinema POS/TMS/booking system as the schedule authority. TMDB is used only to enrich those records with metadata and poster art.
+Manual movies display a QR only when **On sale** is enabled. Their slug can be entered explicitly, and a full ticket URL override is available for exceptional routes.
+
+For production, INDY is the schedule, ticket slug, and primary poster authority. TMDB is used only as an optional artwork fallback for manual movies or an INDY movie without poster artwork.
 
 ## Embedded info-beamer playlist
 
@@ -53,6 +55,12 @@ Hosted expands each selection into its images, videos, durations, and schedules,
 **Playlist media scaling** defaults to **Fit and center**. The complete image or video is proportionally scaled into the display and centered, with black letterboxing where its aspect ratio differs from the screen. **Fill screen (crop)** is available when edge-to-edge playback is preferred.
 
 After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.
+
+## INDY posters and optional TMDB fallback
+
+Cinema Showcase queries INDY's public movie details using each schedule feature ID. The returned `posterImage` is downloaded from INDY's signage image CDN at a portrait-friendly resolution and cached locally for offline playback. Nearby Cinema Showcase devices can share these cached files using the package's peer-download feature.
+
+TMDB is not contacted when INDY supplies a poster. A TMDB read token can still be configured to fill artwork gaps, especially for manually entered movies.
 
 ## TMDB terms
 

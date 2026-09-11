@@ -86,10 +86,11 @@
       "default": "America/New_York"
     },
     {
-      "title": "TMDB API read token",
+      "title": "TMDB token (optional fallback)",
       "name": "tmdb_token",
       "type": "string",
       "ui_type": "password",
+      "hint": "Used only when an INDY or manual movie has no INDY poster",
       "default": ""
     },
     {

@@ -219,7 +219,9 @@ def fetch_indy_movies(feed_url, site_id, timezone_name):
         movie["url_slug"] = movie.get("url_slug") or detail.get("url_slug") or slugify(movie.get("title"))
         movie["indy_poster_image"] = detail.get("poster_image")
         movie["poster_url"] = detail.get("poster_url")
-        movie["first_show_date"] = min(movie.pop("_dates")).isoformat()
+        dates = movie.pop("_dates")
+        movie["first_show_date"] = min(dates).isoformat()
+        movie["last_show_date"] = max(dates).isoformat()
         screens = movie.pop("_screens")
         if len(screens) == 1:
             movie["auditorium"] = screens[0]
@@ -342,7 +344,7 @@ def title_key(title):
     return re.sub(r"[^a-z0-9]+", "", str(title or "").lower())
 
 
-def classify_movies(api_movies, manual_movies, today=None):
+def classify_movies(api_movies, manual_movies, today=None, show_leaving_soon=True):
     today = today or date.today()
     tomorrow = today + timedelta(days=1)
     merged = {}
@@ -375,6 +377,30 @@ def classify_movies(api_movies, manual_movies, today=None):
                     pass
             if manual and not movie.get("showtimes"):
                 movie["showtimes"] = []
+    if show_leaving_soon:
+        cutoff = today + timedelta(days=14)
+        reaches_cutoff = set()
+        for key in order:
+            date_text = merged[key].get("last_show_date")
+            if not date_text:
+                continue
+            try:
+                if datetime.strptime(str(date_text)[0:10], "%Y-%m-%d").date() >= cutoff:
+                    reaches_cutoff.add(key)
+            except ValueError:
+                pass
+        if reaches_cutoff:
+            for key in order:
+                movie = merged[key]
+                if movie.get("status") != "now_showing" or not movie.get("last_show_date"):
+                    continue
+                try:
+                    last_show = datetime.strptime(str(movie["last_show_date"])[0:10], "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                other_movies_reach_cutoff = any(other_key != key for other_key in reaches_cutoff)
+                if last_show < cutoff and other_movies_reach_cutoff:
+                    movie["status"] = "leaving_soon"
     return [merged[key] for key in order]
 
 
@@ -387,7 +413,12 @@ def refresh(config):
     timezone_name = str(config.get("venue_timezone") or "America/New_York")
     movies = fetch_indy_movies(feed_url, site_id, timezone_name) if feed_url else []
     today = venue_today(timezone_name)
-    movies = classify_movies(movies, config.get("manual_movies") or [], today=today)
+    movies = classify_movies(
+        movies,
+        config.get("manual_movies") or [],
+        today=today,
+        show_leaving_soon=config.get("show_leaving_soon", True),
+    )
     if not movies:
         atomic_json(CATALOG, read_json(os.path.join(ROOT, "catalog-fallback.json"), {"movies": []}))
         return

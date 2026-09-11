@@ -5,6 +5,7 @@ local placeholder = resource.load_image("poster-placeholder.png")
 local white = resource.create_colored_texture(1, 1, 1, 1)
 local status_bars = {
     now_showing = resource.create_colored_texture(0.15, 0.78, 0.72, 1),
+    leaving_soon = resource.create_colored_texture(0.92, 0.30, 0.32, 1),
     starts_tomorrow = resource.create_colored_texture(0.98, 0.78, 0.20, 1),
     coming_soon = resource.create_colored_texture(0.95, 0.55, 0.18, 1),
 }
@@ -265,7 +266,7 @@ local function draw_movie(movie, alpha)
     local width, height = canvas_width, canvas_height
     local footer = height * 0.84
     local margin = width * 0.04
-    local accent = movie.status == "coming_soon" and {0.95, 0.55, 0.18} or (movie.status == "starts_tomorrow" and {0.98, 0.78, 0.20} or {0.15, 0.78, 0.72})
+    local accent = movie.status == "coming_soon" and {0.95, 0.55, 0.18} or (movie.status == "starts_tomorrow" and {0.98, 0.78, 0.20} or (movie.status == "leaving_soon" and {0.92, 0.30, 0.32} or {0.15, 0.78, 0.72}))
     gl.clear(0.025, 0.035, 0.06, 1)
     local poster = movie.poster_file and posters[movie.poster_file]
     if poster and poster:state() == "loaded" then
@@ -281,7 +282,7 @@ local function draw_movie(movie, alpha)
     local has_qr = config.show_qr_codes ~= false and qr and movie.ticket_url and qr:state() == "loaded"
     local qr_size = math.min(width * 0.17, height * 0.10)
     local qr_x = width - margin - qr_size
-    local label = movie.status == "coming_soon" and "COMING SOON" or (movie.status == "starts_tomorrow" and "STARTS TOMORROW" or "NOW SHOWING")
+    local label = movie.status == "coming_soon" and "COMING SOON" or (movie.status == "starts_tomorrow" and "STARTS TOMORROW" or (movie.status == "leaving_soon" and "CATCH IT ON THE BIG SCREEN NOW!" or "NOW SHOWING"))
     local max_label = has_qr and (qr_x - margin * 2) or (width - margin * 2)
     local size = width * 0.047
     size = math.min(size, size * max_label / math.max(1, font:width(label, size)))

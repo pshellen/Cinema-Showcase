@@ -1,5 +1,11 @@
 # Cinema Showcase for info-beamer
 
+## Portrait renderer fix
+
+The renderer now uses documented info-beamer colored textures instead of unsupported gl.color/gl.rect calls. Movie slides use the approved portrait composition: poster above a compact status footer, with the ticket caption and QR fully inside the footer. Showtimes, auditorium and repeated movie titles are omitted when artwork is available. Missing artwork displays the movie title and "Poster unavailable"; startup without a catalog displays "Waiting for schedule content".
+
+Local verification: 15 tests including Lua 5.1 rendering smoke tests (requires the development-only Python lupa package). The smoke tests reproduce the old drawing-call failure and exercise missing/loaded posters, ticket-caption position, and offline-indicator recovery. Actual info-beamer device playback remains to be verified.
+
 ## Local poster sharing and offline indicator
 
 Enable **Share posters over local network** and enter nearby Cinema Showcase devices' private IPv4 addresses, separated by commas. Use DHCP reservations. Devices must belong to the same info-beamer account and allow TCP 18742 between them. Discovery is manual and separate from info-beamer's built-in asset P2P setting. Run one Cinema Showcase service per device on this port.

@@ -2,6 +2,12 @@ gl.setup(NATIVE_WIDTH, NATIVE_HEIGHT)
 
 local font = resource.load_font("font.ttf")
 local placeholder = resource.load_image("poster-placeholder.png")
+local white = resource.create_colored_texture(1, 1, 1, 1)
+local status_bars = {
+    now_showing = resource.create_colored_texture(0.15, 0.78, 0.72, 1),
+    starts_tomorrow = resource.create_colored_texture(0.98, 0.78, 0.20, 1),
+    coming_soon = resource.create_colored_texture(0.95, 0.55, 0.18, 1),
+}
 local offline_logo = resource.load_image("offline-logo.png")
 local connection_ok = true
 util.json_watch("connection.json", function(state)
@@ -23,7 +29,7 @@ local sequence_started = sys.now()
 
 local function sorted_children()
     local result = {}
-    for name, _ in pairs(CHILDS) do
+    for name, _ in pairs(CHILDS or {}) do
         table.insert(result, name)
     end
     table.sort(result)
@@ -143,47 +149,38 @@ end
 
 local function draw_movie(movie, alpha)
     local width, height = NATIVE_WIDTH, NATIVE_HEIGHT
+    local footer = height * 0.84
+    local margin = width * 0.04
     local accent = movie.status == "coming_soon" and {0.95, 0.55, 0.18} or (movie.status == "starts_tomorrow" and {0.98, 0.78, 0.20} or {0.15, 0.78, 0.72})
     gl.clear(0.025, 0.035, 0.06, 1)
     local poster = movie.poster_file and posters[movie.poster_file]
-    local poster_width = width * 0.36
-    if poster then
-        poster:draw(0, 0, poster_width, height, alpha)
+    if poster and poster:state() == "loaded" then
+        util.draw_correct(poster, 0, 0, width, footer, alpha)
     else
-        gl.color(0.08, 0.11, 0.16, alpha)
-        util.draw_correct(placeholder, 0, 0, poster_width, height)
-        gl.color(1, 1, 1, 1)
+        -- Keep missing artwork visible and identifiable instead of a blank screen.
+        text_width_limited(movie.title or "Cinema Showcase", margin, height * 0.34, width * 0.07, width - 2 * margin, 1, 1, 1, alpha)
+        font:write(margin, height * 0.55, "Poster unavailable", width * 0.035, 0.72, 0.77, 0.84, alpha)
     end
-    gl.color(accent[1], accent[2], accent[3], alpha)
-    gl.rect(poster_width, 0, poster_width + 12, height)
-    gl.color(1, 1, 1, 1)
-    local x = poster_width + width * 0.055
-    local label = movie.status == "coming_soon" and "COMING SOON" or (movie.status == "starts_tomorrow" and "STARTS TOMORROW" or "NOW SHOWING")
-    font:write(x, height * 0.13, label, height * 0.045, accent[1], accent[2], accent[3], alpha)
-    text_width_limited(movie.title, x, height * 0.23, height * 0.085, width - x - 60, 1, 1, 1, alpha)
-    local details = {}
-    if movie.rating then table.insert(details, movie.rating) end
-    if movie.runtime then table.insert(details, tostring(movie.runtime) .. " min") end
-    if movie.auditorium then table.insert(details, movie.auditorium) end
-    font:write(x, height * 0.54, table.concat(details, "   •   "), height * 0.035, 0.72, 0.77, 0.84, alpha)
-    local times = table.concat(movie.showtimes or {}, "     ")
-    if times ~= "" then
-        font:write(x, height * 0.67, times, height * 0.047, 1, 1, 1, alpha)
-    elseif movie.opens then
-        font:write(x, height * 0.67, "Opens " .. tostring(movie.opens), height * 0.047, 1, 1, 1, alpha)
-    end
-    font:write(x, height * 0.89, config.venue_name or "", height * 0.028, 0.55, 0.61, 0.7, alpha)
+    local bar = status_bars[movie.status] or status_bars.now_showing
+    bar:draw(0, footer, width, footer + height * 0.004, alpha)
     local qr = movie.qr_file and qrs[movie.qr_file]
-    if qr and movie.ticket_url then
-        local qr_size = math.min(width, height) * 0.19
-        local margin = height * 0.035
-        local x2 = width - margin
-        local y2 = height - margin
-        gl.color(1, 1, 1, alpha)
-        gl.rect(x2 - qr_size - 12, y2 - qr_size - 12, x2 + 12, y2 + 12)
-        gl.color(1, 1, 1, 1)
-        qr:draw(x2 - qr_size, y2 - qr_size, x2, y2, alpha)
-        font:write(x2 - qr_size, y2 - qr_size - height * 0.045, "SCAN FOR TICKETS", height * 0.025, 1, 1, 1, alpha)
+    local has_qr = config.show_qr_codes ~= false and qr and movie.ticket_url and qr:state() == "loaded"
+    local qr_size = math.min(width * 0.17, height * 0.10)
+    local qr_x = width - margin - qr_size
+    local label = movie.status == "coming_soon" and "COMING SOON" or (movie.status == "starts_tomorrow" and "STARTS TOMORROW" or "NOW SHOWING")
+    local max_label = has_qr and (qr_x - margin * 2) or (width - margin * 2)
+    local size = width * 0.047
+    size = math.min(size, size * max_label / math.max(1, font:width(label, size)))
+    font:write(margin, footer + height * 0.04, label, size, accent[1], accent[2], accent[3], alpha)
+    if has_qr then
+        local caption = "SCAN FOR TICKETS"
+        local caption_size = width * 0.024
+        caption_size = math.min(caption_size, caption_size * qr_size / math.max(1, font:width(caption, caption_size)))
+        local caption_y = footer + height * 0.018
+        local qr_y = caption_y + caption_size * 1.4
+        white:draw(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size, alpha)
+        qr:draw(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size, alpha)
+        font:write(qr_x, caption_y, caption, caption_size, 1, 1, 1, alpha)
     end
 end
 

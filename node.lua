@@ -93,32 +93,30 @@ end
 
 local function rebuild_sequence()
     sequence = {}
-    local now_showing = {}
-    local starts_tomorrow = {}
-    local coming_soon = {}
+    local indy_movies = {}
+    local campaign_movies = {}
     for _, movie in ipairs(movies) do
-        if movie.status == "starts_tomorrow" then
-            table.insert(starts_tomorrow, movie)
-        elseif movie.status == "coming_soon" then
-            table.insert(coming_soon, movie)
-        else
-            table.insert(now_showing, movie)
+        if movie.status ~= "coming_soon" or config.show_coming_soon then
+            if movie.source == "campaign_manager" then
+                table.insert(campaign_movies, movie)
+            else
+                table.insert(indy_movies, movie)
+            end
         end
     end
     local interstitials = playlist_media()
-    local widest = math.max(#now_showing, #starts_tomorrow, config.show_coming_soon and #coming_soon or 0, #interstitials)
-    for index = 1, widest do
-        if now_showing[index] then
-            table.insert(sequence, {kind="movie", movie=now_showing[index], duration=config.movie_duration})
+    local rounds = math.max(#indy_movies, #interstitials, #campaign_movies)
+    for index = 1, rounds do
+        if #indy_movies > 0 then
+            local movie = indy_movies[((index - 1) % #indy_movies) + 1]
+            table.insert(sequence, {kind="movie", movie=movie, duration=config.movie_duration})
         end
-        if interstitials[index] then
-            table.insert(sequence, interstitials[index])
+        if #interstitials > 0 then
+            table.insert(sequence, interstitials[((index - 1) % #interstitials) + 1])
         end
-        if starts_tomorrow[index] then
-            table.insert(sequence, {kind="movie", movie=starts_tomorrow[index], duration=config.movie_duration})
-        end
-        if config.show_coming_soon and coming_soon[index] then
-            table.insert(sequence, {kind="movie", movie=coming_soon[index], duration=config.movie_duration})
+        if #campaign_movies > 0 then
+            local movie = campaign_movies[((index - 1) % #campaign_movies) + 1]
+            table.insert(sequence, {kind="movie", movie=movie, duration=config.movie_duration})
         end
     end
     if #sequence == 0 then

@@ -64,6 +64,8 @@ Choose an existing Hosted playlist with the **Primary info-beamer playlist** pic
 
 Hosted expands each selection into its images, videos, durations, and schedules, matching the playlist mechanism used by info-beamer's HDv2 player. Cinema Showcase keeps the configured playback durations. Video audio is disabled by default and can be enabled with **Playlist video audio**. Create and maintain the source playlists in the account's **Playlists** section; no nested child packages are required.
 
+Version 0.17 uses a source-based repeating round robin: one INDY movie, one active item from the combined child playlists, then one Campaign Manager movie. Missing sources are skipped. A source with fewer items wraps independently, so an available Campaign Manager movie cannot be stranded at the end of a long INDY or child-playlist roster. Movie status labels and the Coming Soon enable switch still apply.
+
 **Playlist media scaling** defaults to **Fit and center**. The complete image or video is proportionally scaled into the display and centered, with black letterboxing where its aspect ratio differs from the screen. **Fill screen (crop)** is available when edge-to-edge playback is preferred.
 
 After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.

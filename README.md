@@ -34,7 +34,7 @@ The default endpoint is INDY's `upcoming_showings.xml` TMS feed. Set the numeric
 
 Classification uses `first_show_date`, `start_date`, `release_date`, or `opens`, in that order. Dates on or before today are **Now Showing**, tomorrow is **Starts Tomorrow**, and later dates are **Coming Soon**. If a feed supplies dated performance objects, the earliest performance date is used automatically.
 
-When **Catch It on the Big Screen enabled** is on, Cinema Showcase also tracks each movie's final scheduled performance. A current movie receives **CATCH IT ON THE BIG SCREEN NOW!** when it has no performance at or beyond 14 days from today, but at least one other movie does. Requiring another movie at that horizon prevents the callout from appearing merely because INDY has not published a full two weeks of schedules yet.
+When **Catch It on the Big Screen enabled** is on, the callout is evaluated only on Tuesdays. A current movie receives **CATCH IT ON THE BIG SCREEN NOW!** when it has no performance scheduled from the upcoming Friday onward, but at least one other movie does. Requiring another Friday-or-later movie confirms that INDY has published the new weekend schedule. On every other day, current films remain labeled **NOW SHOWING**.
 
 ## Manual roster
 

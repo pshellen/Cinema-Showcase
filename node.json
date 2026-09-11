@@ -134,7 +134,7 @@
       "title": "Catch It on the Big Screen enabled",
       "name": "show_leaving_soon",
       "type": "boolean",
-      "hint": "Highlights a current movie when another movie proves the INDY schedule reaches 14 days ahead",
+      "hint": "On Tuesdays, highlights current movies without a Friday-or-later showing when other movies are scheduled then",
       "default": true
     },
     {

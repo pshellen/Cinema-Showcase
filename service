@@ -377,19 +377,19 @@ def classify_movies(api_movies, manual_movies, today=None, show_leaving_soon=Tru
                     pass
             if manual and not movie.get("showtimes"):
                 movie["showtimes"] = []
-    if show_leaving_soon:
-        cutoff = today + timedelta(days=14)
-        reaches_cutoff = set()
+    if show_leaving_soon and today.weekday() == 1:
+        friday = today + timedelta(days=3)
+        scheduled_friday_forward = set()
         for key in order:
             date_text = merged[key].get("last_show_date")
             if not date_text:
                 continue
             try:
-                if datetime.strptime(str(date_text)[0:10], "%Y-%m-%d").date() >= cutoff:
-                    reaches_cutoff.add(key)
+                if datetime.strptime(str(date_text)[0:10], "%Y-%m-%d").date() >= friday:
+                    scheduled_friday_forward.add(key)
             except ValueError:
                 pass
-        if reaches_cutoff:
+        if scheduled_friday_forward:
             for key in order:
                 movie = merged[key]
                 if movie.get("status") != "now_showing" or not movie.get("last_show_date"):
@@ -398,8 +398,8 @@ def classify_movies(api_movies, manual_movies, today=None, show_leaving_soon=Tru
                     last_show = datetime.strptime(str(movie["last_show_date"])[0:10], "%Y-%m-%d").date()
                 except ValueError:
                     continue
-                other_movies_reach_cutoff = any(other_key != key for other_key in reaches_cutoff)
-                if last_show < cutoff and other_movies_reach_cutoff:
+                other_movies_scheduled = any(other_key != key for other_key in scheduled_friday_forward)
+                if last_show < friday and other_movies_scheduled:
                     movie["status"] = "leaving_soon"
     return [merged[key] for key in order]
 

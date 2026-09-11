@@ -94,6 +94,12 @@ def location_value(value):
     return value
 
 
+def explicit_site_value(value):
+    if isinstance(value, dict):
+        return value.get("site_id") or value.get("siteId") or value.get("indy_site_id") or value.get("indySiteId")
+    return None
+
+
 def write_campaign_status(value):
     try:
         atomic_json(CAMPAIGN_STATUS, value)
@@ -170,11 +176,32 @@ def fetch_campaign_movies(config, site_id, today):
                 reject("channel")
                 continue
         locations = entry.get("location_ids") or entry.get("locationIds") or entry.get("locations")
+        site_targets = (
+            entry.get("site_ids") or entry.get("siteIds") or
+            entry.get("indy_site_ids") or entry.get("indySiteIds") or
+            entry.get("site_id") or entry.get("siteId") or
+            entry.get("indy_site_id") or entry.get("indySiteId")
+        )
         all_locations = entry.get("all_locations") if "all_locations" in entry else entry.get("allLocations")
-        if locations and not truthy(all_locations):
+        if not truthy(all_locations) and site_targets:
+            if not isinstance(site_targets, list):
+                site_targets = [site_targets]
+            if str(site_id) not in [str(location_value(value)) for value in site_targets]:
+                reject("location")
+                continue
+        elif locations and not truthy(all_locations):
             if not isinstance(locations, list):
                 locations = [locations]
-            if str(site_id) not in [str(location_value(value)) for value in locations]:
+            explicit_targets = [explicit_site_value(value) for value in locations]
+            explicit_targets = [value for value in explicit_targets if value not in (None, "")]
+            numeric_legacy_targets = [
+                value for value in locations
+                if not isinstance(value, dict) and str(value).isdigit()
+            ]
+            comparable_targets = explicit_targets or numeric_legacy_targets
+            # UUID-only location_ids are database identifiers. The endpoint already
+            # received site_id and is responsible for mapping those IDs to the site.
+            if comparable_targets and str(site_id) not in [str(value) for value in comparable_targets]:
                 reject("location")
                 continue
         active_from = entry.get("active_from") or entry.get("activeFrom") or entry.get("starts_at") or entry.get("startsAt")

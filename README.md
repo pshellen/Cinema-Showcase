@@ -48,6 +48,8 @@ Keep image URLs stable for the life of an artwork revision. When artwork changes
 
 Version 0.15 accepts both a top-level array and common wrapped response shapes such as `{ "campaigns": [...] }`, `{ "data": [...] }`, and `{ "data": { "campaigns": [...] } }`. It also accepts snake_case and camelCase field names. Each successful refresh writes `campaign-status.json` with received, accepted, rejected, missing-artwork, and final-catalog counts so filtering can be diagnosed over SSH without exposing the API token.
 
+Version 0.16 distinguishes Lovable/Supabase database location UUIDs from INDY numeric site IDs. Explicit `site_id`, `site_ids`, `indy_site_id`, or `indy_site_ids` values are validated against the configured INDY site. UUID-only `location_ids` are trusted after the server endpoint has filtered the request's `site_id`, preventing a database UUID from being incorrectly compared with `352`.
+
 ## Ticket QR codes
 
 Every movie with an upcoming INDY performance is considered on sale. The service uses each XML feature ID to query INDY's public GraphQL endpoint for the movie's authoritative `urlSlug`. Its QR code points to the circuit-wide route `https://flagshipcinemas.com/movie/{url-slug}/`, without a location name, allowing the destination page to offer all participating locations. If the slug lookup is temporarily unavailable, a title-based slug is used as an offline fallback.

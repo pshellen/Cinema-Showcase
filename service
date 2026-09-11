@@ -25,6 +25,8 @@ SCRATCH = os.environ.get("SCRATCH") or os.path.join(ROOT, ".scratch")
 CATALOG = os.path.join(ROOT, "catalog.json")
 USER_AGENT = "CinemaShowcase-info-beamer/0.1"
 INDY_IMAGE_BASE = "https://indy-systems.imgix.net"
+CACHE_RETENTION_SECONDS = 2 * 24 * 60 * 60
+CACHE_RETENTION_STATE = os.path.join(SCRATCH, "content-retention.json")
 
 
 def read_json(path, default):
@@ -54,6 +56,99 @@ def get_json(url, headers=None, params=None, timeout=20):
         return json.load(response)
     finally:
         response.close()
+
+
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def campaign_orientation(config):
+    orientation = str(config.get("campaign_orientation") or "auto").strip().lower()
+    if orientation in ("vertical", "horizontal"):
+        return orientation
+    try:
+        rotation = int(config.get("rotation") or 0) % 360
+    except (TypeError, ValueError):
+        rotation = 0
+    return "vertical" if rotation in (90, 270) else "horizontal"
+
+
+def fetch_campaign_movies(config, site_id, today):
+    """Load active static Cinema Showcase campaigns from the Lovable feed."""
+    url = str(config.get("campaign_feed_url") or "").strip()
+    if not url:
+        return []
+    orientation = campaign_orientation(config)
+    token = str(config.get("campaign_api_token") or "").strip()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    payload = get_json(url, headers=headers, params={
+        "site_id": str(site_id),
+        "orientation": orientation,
+        "channel": "cinema_showcase",
+    })
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    if isinstance(payload, dict):
+        entries = payload.get("campaigns") or payload.get("movies") or []
+    else:
+        entries = payload
+    if not isinstance(entries, list):
+        raise ValueError("Campaign Manager feed must contain a campaigns array")
+
+    movies = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("campaign_type") or entry.get("type") or "coming_soon_movie").lower()
+        if kind not in ("coming_soon_movie", "cinema_showcase_movie", "coming_soon", "movie"):
+            continue
+        media_type = str(entry.get("media_type") or "image").lower()
+        if media_type not in ("image", "static_image"):
+            continue
+        channels = entry.get("channels")
+        if channels and isinstance(channels, list):
+            normalized_channels = [str(value).lower() for value in channels]
+            if "signage" not in normalized_channels and "cinema_showcase" not in normalized_channels:
+                continue
+        locations = entry.get("location_ids") or entry.get("locations")
+        if locations and not truthy(entry.get("all_locations")):
+            if not isinstance(locations, list):
+                locations = [locations]
+            if str(site_id) not in [str(value) for value in locations]:
+                continue
+        active_from = entry.get("active_from") or entry.get("starts_at")
+        active_until = entry.get("active_until") or entry.get("ends_at")
+        if active_from and str(active_from)[0:10] > today.isoformat():
+            continue
+        if active_until and str(active_until)[0:10] < today.isoformat():
+            continue
+
+        title = str(entry.get("title") or entry.get("name") or "").strip()
+        if not title:
+            continue
+        if orientation == "vertical":
+            artwork = entry.get("vertical_image_url") or entry.get("poster_url") or entry.get("horizontal_image_url")
+        else:
+            artwork = entry.get("horizontal_image_url") or entry.get("poster_url") or entry.get("vertical_image_url")
+        ticket = entry.get("movie_url") or entry.get("ticket_url") or entry.get("url")
+        movie = {
+            "title": title,
+            "release_date": entry.get("release_date") or entry.get("first_show_date") or entry.get("opens"),
+            "poster_url": artwork,
+            "ticket_url": ticket,
+            "url_slug": entry.get("url_slug") or entry.get("slug"),
+            "on_sale": truthy(entry.get("on_sale")),
+            "rating": entry.get("rating"),
+            "showtimes": [],
+            "source": "campaign_manager",
+            "campaign_id": entry.get("id"),
+        }
+        movies.append(movie)
+    return movies
 
 
 def download(url, destination):
@@ -404,6 +499,45 @@ def classify_movies(api_movies, manual_movies, today=None, show_leaving_soon=Tru
     return [merged[key] for key in order]
 
 
+def managed_cache_file(filename):
+    return bool(
+        re.match(r"^poster-(?:\d+|[a-f0-9]{64})\.", filename) or
+        re.match(r"^qr-[a-f0-9]+\.png$", filename)
+    )
+
+
+def clean_inactive_cache(active_files, now=None):
+    """Delete cached artwork two days after it last appeared in the catalog."""
+    now = int(now if now is not None else time.time())
+    if not os.path.isdir(SCRATCH):
+        os.makedirs(SCRATCH)
+    state = read_json(CACHE_RETENTION_STATE, {})
+    if not isinstance(state, dict):
+        state = {}
+    for filename in active_files:
+        state[filename] = now
+    for filename in os.listdir(ROOT):
+        if not managed_cache_file(filename) or filename in active_files:
+            continue
+        try:
+            last_active = int(state.get(filename, now))
+        except (TypeError, ValueError):
+            last_active = now
+        if filename not in state:
+            state[filename] = last_active
+        if now - last_active < CACHE_RETENTION_SECONDS:
+            continue
+        try:
+            os.unlink(os.path.join(ROOT, filename))
+            state.pop(filename, None)
+        except OSError:
+            pass
+    for filename in list(state.keys()):
+        if not os.path.exists(os.path.join(ROOT, filename)):
+            state.pop(filename, None)
+    atomic_json(CACHE_RETENTION_STATE, state)
+
+
 def refresh(config):
     feed_setting = config.get("indy_feed_url")
     if feed_setting is None:
@@ -413,14 +547,18 @@ def refresh(config):
     timezone_name = str(config.get("venue_timezone") or "America/New_York")
     movies = fetch_indy_movies(feed_url, site_id, timezone_name) if feed_url else []
     today = venue_today(timezone_name)
+    campaign_movies = fetch_campaign_movies(config, site_id, today)
+    # Keep legacy values readable during upgrades, but new entries come from Campaign Manager.
+    campaign_movies.extend(config.get("manual_movies") or [])
     movies = classify_movies(
         movies,
-        config.get("manual_movies") or [],
+        campaign_movies,
         today=today,
         show_leaving_soon=config.get("show_leaving_soon", True),
     )
     if not movies:
         atomic_json(CATALOG, read_json(os.path.join(ROOT, "catalog-fallback.json"), {"movies": []}))
+        clean_inactive_cache(set())
         return
     horizon = max(1, min(365, int(config.get("coming_soon_days") or 90)))
     cutoff = today + timedelta(days=horizon)
@@ -481,17 +619,7 @@ def refresh(config):
         os.makedirs(SCRATCH)
     atomic_json(cache_path, cache)
     atomic_json(CATALOG, {"updated_at": int(time.time()), "movies": movies})
-    for filename in os.listdir(ROOT):
-        if re.match(r"^poster-(?:\d+|[a-f0-9]{64})\.", filename) and filename not in active_posters:
-            try:
-                os.unlink(os.path.join(ROOT, filename))
-            except OSError:
-                pass
-        if re.match(r"^qr-[a-f0-9]+\.png$", filename) and filename not in active_qrs:
-            try:
-                os.unlink(os.path.join(ROOT, filename))
-            except OSError:
-                pass
+    clean_inactive_cache(active_posters | active_qrs)
 
 
 def main():

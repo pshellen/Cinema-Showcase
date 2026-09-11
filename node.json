@@ -74,6 +74,33 @@
       "default": "https://api-us.indy.systems/tms/upcoming_showings.xml"
     },
     {
+      "title": "Campaign Manager feed URL",
+      "name": "campaign_feed_url",
+      "type": "string",
+      "hint": "Public or token-protected Lovable JSON endpoint for Cinema Showcase movies",
+      "default": ""
+    },
+    {
+      "title": "Campaign Manager API token",
+      "name": "campaign_api_token",
+      "type": "string",
+      "ui_type": "password",
+      "hint": "Optional Bearer token; leave blank for a public read-only feed",
+      "default": ""
+    },
+    {
+      "title": "Campaign artwork orientation",
+      "name": "campaign_orientation",
+      "type": "select",
+      "hint": "Auto uses vertical artwork at 90°/270° and horizontal artwork at 0°/180°",
+      "options": [
+        ["auto", "Automatic from display rotation"],
+        ["vertical", "Vertical poster (9:16)"],
+        ["horizontal", "Horizontal artwork (16:9)"]
+      ],
+      "default": "auto"
+    },
+    {
       "title": "Ticket website base URL",
       "name": "ticket_base_url",
       "type": "string",
@@ -90,7 +117,7 @@
       "name": "tmdb_token",
       "type": "string",
       "ui_type": "password",
-      "hint": "Used only when an INDY or manual movie has no INDY poster",
+      "hint": "Used only when INDY or Campaign Manager supplies no artwork",
       "default": ""
     },
     {
@@ -150,65 +177,12 @@
       "name": "show_qr_codes",
       "type": "boolean",
       "default": true
-    },
-    {
-      "title": "Manual movie roster",
-      "name": "manual_movies",
-      "type": "list",
-      "itemname": "Movie",
-      "items": [
-        {
-          "title": "Movie title",
-          "name": "title",
-          "type": "string",
-          "default": ""
-        },
-        {
-          "title": "Start / release date",
-          "name": "release_date",
-          "type": "string",
-          "default": "2026-01-01",
-          "placeholder": "YYYY-MM-DD"
-        },
-        {
-          "title": "TMDB ID override",
-          "name": "tmdb_id",
-          "type": "string",
-          "default": "",
-          "placeholder": "Optional"
-        },
-        {
-          "title": "Rating",
-          "name": "rating",
-          "type": "string",
-          "default": ""
-        },
-        {
-          "title": "On sale",
-          "name": "on_sale",
-          "type": "boolean",
-          "default": false
-        },
-        {
-          "title": "Movie URL slug",
-          "name": "url_slug",
-          "type": "string",
-          "default": "",
-          "placeholder": "example-movie"
-        },
-        {
-          "title": "Full ticket URL override",
-          "name": "ticket_url",
-          "type": "string",
-          "default": "",
-          "placeholder": "Optional https://..."
-        }
-      ]
     }
   ],
   "scratch_scope": "instance",
   "optional": [
     "README.md",
+    "sample-campaign-feed.json",
     "sample-upcoming-showings.xml",
     "OFL.txt",
     "tests/.*"

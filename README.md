@@ -4,6 +4,8 @@
 
 Choose **Display rotation** in the info-beamer setup to rotate the complete output clockwise by 0°, 90°, 180°, or 270°. The setting uses info-beamer's native screen transform, and the Hosted device preview follows the selected orientation.
 
+For 90° and 270° rotation, Cinema Showcase swaps the logical canvas dimensions before laying out content. A 1920×1080 HDMI output therefore uses a 1080×1920 portrait canvas, keeping posters, embedded playlist media, QR codes, and the offline indicator centered in the visible output.
+
 ## Portrait renderer fix
 
 The renderer now uses documented info-beamer colored textures instead of unsupported gl.color/gl.rect calls. Movie slides use the approved portrait composition: poster above a compact status footer, with the ticket caption and QR fully inside the footer. Showtimes, auditorium and repeated movie titles are omitted when artwork is available. Missing artwork displays the movie title and "Poster unavailable"; startup without a catalog displays "Waiting for schedule content".

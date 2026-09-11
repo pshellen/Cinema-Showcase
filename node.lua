@@ -31,6 +31,8 @@ local sequence_signature = ""
 local sequence_index = 1
 local sequence_started = sys.now()
 local screen_transform = util.screen_transform(0)
+local canvas_width = NATIVE_WIDTH
+local canvas_height = NATIVE_HEIGHT
 
 local function schedule_is_active(item)
     local schedule = item.schedule
@@ -178,6 +180,13 @@ util.json_watch("config.json", function(updated)
         rotation = 0
     end
     screen_transform = util.screen_transform(rotation)
+    if rotation == 90 or rotation == 270 then
+        canvas_width = NATIVE_HEIGHT
+        canvas_height = NATIVE_WIDTH
+    else
+        canvas_width = NATIVE_WIDTH
+        canvas_height = NATIVE_HEIGHT
+    end
     config.movie_duration = math.max(2, tonumber(config.movie_duration) or 12)
     load_playlist_images(config.interstitial_playlist)
     for _, source in ipairs(config.additional_playlists or {}) do
@@ -253,7 +262,7 @@ local function text_width_limited(text, x, y, size, max_width, r, g, b, a)
 end
 
 local function draw_movie(movie, alpha)
-    local width, height = NATIVE_WIDTH, NATIVE_HEIGHT
+    local width, height = canvas_width, canvas_height
     local footer = height * 0.84
     local margin = width * 0.04
     local accent = movie.status == "coming_soon" and {0.95, 0.55, 0.18} or (movie.status == "starts_tomorrow" and {0.98, 0.78, 0.20} or {0.15, 0.78, 0.72})
@@ -291,8 +300,8 @@ end
 
 local function draw_empty()
     gl.clear(0.025, 0.035, 0.06, 1)
-    font:write(NATIVE_WIDTH * 0.08, NATIVE_HEIGHT * 0.40, config.venue_name or "Cinema Showcase", NATIVE_HEIGHT * 0.09, 1, 1, 1, 1)
-    font:write(NATIVE_WIDTH * 0.08, NATIVE_HEIGHT * 0.55, "Waiting for schedule content", NATIVE_HEIGHT * 0.04, 0.55, 0.61, 0.7, 1)
+    font:write(canvas_width * 0.08, canvas_height * 0.40, config.venue_name or "Cinema Showcase", canvas_height * 0.09, 1, 1, 1, 1)
+    font:write(canvas_width * 0.08, canvas_height * 0.55, "Waiting for schedule content", canvas_height * 0.04, 0.55, 0.61, 0.7, 1)
 end
 
 local function stop_video()
@@ -305,18 +314,18 @@ end
 
 local function draw_playlist_resource(res, alpha)
     if config.playlist_scaling == "fill" then
-        util.draw_correct(res, 0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, alpha)
+        util.draw_correct(res, 0, 0, canvas_width, canvas_height, alpha)
         return
     end
     local _, media_width, media_height = res:state()
     if not media_width or not media_height or media_width <= 0 or media_height <= 0 then
         return
     end
-    local scale = math.min(NATIVE_WIDTH / media_width, NATIVE_HEIGHT / media_height)
+    local scale = math.min(canvas_width / media_width, canvas_height / media_height)
     local draw_width = media_width * scale
     local draw_height = media_height * scale
-    local x1 = (NATIVE_WIDTH - draw_width) / 2
-    local y1 = (NATIVE_HEIGHT - draw_height) / 2
+    local x1 = (canvas_width - draw_width) / 2
+    local y1 = (canvas_height - draw_height) / 2
     res:draw(x1, y1, x1 + draw_width, y1 + draw_height, alpha)
 end
 
@@ -373,11 +382,11 @@ function node.render()
     if not connection_ok then
         local status, iw, ih = offline_logo:state()
         if status == "loaded" and iw and ih and iw > 0 and ih > 0 then
-            local size = math.min(NATIVE_WIDTH, NATIVE_HEIGHT)
+            local size = math.min(canvas_width, canvas_height)
             local h = size * 0.055
             local w = h * iw / ih
             local margin = size * 0.012
-            offline_logo:draw(margin, NATIVE_HEIGHT-margin-h, margin+w, NATIVE_HEIGHT-margin, 0.88)
+            offline_logo:draw(margin, canvas_height-margin-h, margin+w, canvas_height-margin, 0.88)
         end
     end
 end

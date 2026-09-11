@@ -18,11 +18,11 @@ Downloads check the local file first, then up to eight configured peers, then TM
 
 The menu package's offline-logo.png appears at bottom left when a schedule refresh fails, including over child packages, and disappears after a successful refresh. It indicates unavailable/stale feed data rather than independently testing internet access. Detection follows the refresh interval and retry backoff. Cached playback continues.
 
-Cinema Showcase promotes current and upcoming movies using the venue's INDY schedule, TMDB posters, ticket QR codes, a manual movie roster, and content from attached info-beamer packages.
+Cinema Showcase promotes current and upcoming movies using the venue's INDY schedule, TMDB posters, ticket QR codes, a manual movie roster, and content from an embedded info-beamer playlist.
 
 ## Installation
 
-Import this directory into info-beamer Hosted as a package, then create a setup from it. Configure the INDY site ID and TMDB API read token. Attach any other info-beamer packages beneath Cinema Showcase; they are discovered automatically and interleaved with movie slides.
+Import this directory into info-beamer Hosted as a package, then create a setup from it. Configure the INDY site ID and TMDB API read token. Choose a native info-beamer playlist in **Info-beamer playlist** to interleave its media with movie slides.
 
 The package service is compatible with the Python 2.7 runtime used by current info-beamer Hosted OS packages and with Python 3 for local testing. It is intentionally unprivileged and requests only the info-beamer `network` permission.
 
@@ -42,11 +42,11 @@ Every movie with an upcoming INDY performance is considered on sale. Its QR code
 
 For production, use the cinema POS/TMS/booking system as the schedule authority. TMDB is used only to enrich those records with metadata and poster art.
 
-## Child packages
+## Embedded info-beamer playlist
 
-Add a package beneath Cinema Showcase in the setup editor, then choose it in the **Child playlist** selector in Cinema Showcase's configuration. The selected child is mixed between movie slides using **Child package duration**. Choose the built-in **No child playlist** entry when no child content should play. Child packages should render correctly when called through `resource.render_child()` and should not assume they permanently own the screen.
+Choose an existing Hosted playlist with the **Info-beamer playlist** picker. Hosted expands that playlist into its images, videos, durations, and schedules, matching the playlist mechanism used by info-beamer's HDv2 player. Cinema Showcase interleaves active items with the poster roster and keeps their configured playback durations. Video audio is disabled by default and can be enabled with **Playlist video audio**. Create and maintain the source playlist in the account's **Playlists** section; no nested child package is required.
 
-Cinema Showcase explicitly accepts nested packages. After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.
+After importing this version, update the package used by the setup before looking for the selector; older imported package revisions do not gain new configuration fields automatically.
 
 ## TMDB terms
 

@@ -16,29 +16,60 @@ end)
 local config = {
     venue_name = "Our Cinema",
     movie_duration = 12,
-    child_duration = 15,
+    interstitial_playlist = {},
     show_coming_soon = true,
 }
 local movies = {}
 local posters = {}
 local qrs = {}
-local children = {}
+local media_images = {}
+local active_video = nil
+local active_video_name = nil
 local sequence = {}
+local sequence_signature = ""
 local sequence_index = 1
 local sequence_started = sys.now()
 local screen_transform = util.screen_transform(0)
 
-local function selected_children()
-    local result = {}
-    local selected = config.child_playlist
-    local name = nil
-    if type(selected) == "table" then
-        name = selected.asset_name or selected.filename
-    elseif type(selected) == "string" then
-        name = selected
+local function schedule_is_active(item)
+    local schedule = item.schedule
+    if schedule == nil or schedule == "always" then
+        return true
+    elseif schedule == "never" then
+        return false
     end
-    if name and name ~= "empty-child" and (CHILDS or {})[name] then
-        table.insert(result, name)
+    if type(schedule) == "number" and config.__schedules and config.__schedules.expanded then
+        schedule = config.__schedules.expanded[schedule + 1]
+    end
+    if type(schedule) ~= "table" then
+        return true
+    end
+    local now = os.time()
+    if now < 10000000 then return false end
+    for _, range in ipairs(schedule) do
+        local starts, duration = range[1], range[2]
+        if starts and duration and starts <= now and now < starts + duration then
+            return true
+        end
+    end
+    return false
+end
+
+local function playlist_media()
+    local result = {}
+    for _, item in ipairs(config.interstitial_playlist or {}) do
+        local asset = item.asset or item.file
+        if asset and asset.asset_name and schedule_is_active(item) then
+            local duration = tonumber(item.duration) or 0
+            if duration <= 0 and asset.metadata then
+                duration = tonumber(asset.metadata.duration) or 0
+            end
+            table.insert(result, {
+                kind = "media",
+                asset = asset,
+                duration = math.max(2, duration > 0 and duration or 10),
+            })
+        end
     end
     return result
 end
@@ -57,14 +88,14 @@ local function rebuild_sequence()
             table.insert(now_showing, movie)
         end
     end
-    local child_names = selected_children()
-    local widest = math.max(#now_showing, #starts_tomorrow, config.show_coming_soon and #coming_soon or 0, #child_names)
+    local interstitials = playlist_media()
+    local widest = math.max(#now_showing, #starts_tomorrow, config.show_coming_soon and #coming_soon or 0, #interstitials)
     for index = 1, widest do
         if now_showing[index] then
             table.insert(sequence, {kind="movie", movie=now_showing[index], duration=config.movie_duration})
         end
-        if child_names[index] then
-            table.insert(sequence, {kind="child", name=child_names[index], duration=config.child_duration})
+        if interstitials[index] then
+            table.insert(sequence, interstitials[index])
         end
         if starts_tomorrow[index] then
             table.insert(sequence, {kind="movie", movie=starts_tomorrow[index], duration=config.movie_duration})
@@ -76,8 +107,28 @@ local function rebuild_sequence()
     if #sequence == 0 then
         table.insert(sequence, {kind="empty", duration=10})
     end
-    sequence_index = math.min(sequence_index, #sequence)
-    sequence_started = sys.now()
+    local signature_parts = {}
+    for _, item in ipairs(sequence) do
+        if item.kind == "movie" then
+            table.insert(signature_parts, table.concat({
+                "movie", item.movie.title or "", item.movie.status or "", tostring(item.duration)
+            }, ":"))
+        elseif item.kind == "media" then
+            table.insert(signature_parts, table.concat({
+                "media", item.asset.asset_name or "", tostring(item.duration)
+            }, ":"))
+        else
+            table.insert(signature_parts, "empty")
+        end
+    end
+    local updated_signature = table.concat(signature_parts, "|")
+    if updated_signature ~= sequence_signature then
+        sequence_index = 1
+        sequence_started = sys.now()
+        sequence_signature = updated_signature
+    else
+        sequence_index = math.min(sequence_index, #sequence)
+    end
 end
 
 local function load_poster(filename)
@@ -94,6 +145,12 @@ local function load_qr(filename)
     end
 end
 
+local function load_media_image(asset)
+    if asset and asset.type == "image" and asset.asset_name and not media_images[asset.asset_name] then
+        media_images[asset.asset_name] = resource.load_image(asset.asset_name)
+    end
+end
+
 util.json_watch("config.json", function(updated)
     config = updated
     local rotation = tonumber(config.rotation) or 0
@@ -102,7 +159,9 @@ util.json_watch("config.json", function(updated)
     end
     screen_transform = util.screen_transform(rotation)
     config.movie_duration = math.max(2, tonumber(config.movie_duration) or 12)
-    config.child_duration = math.max(2, tonumber(config.child_duration) or 15)
+    for _, item in ipairs(config.interstitial_playlist or {}) do
+        load_media_image(item.asset or item.file)
+    end
     rebuild_sequence()
 end)
 
@@ -122,6 +181,9 @@ node.event("content_update", function(filename, file)
     elseif filename:match("^qr%-.+%.png$") then
         if qrs[filename] then qrs[filename]:dispose() end
         qrs[filename] = resource.load_image(file, false, true)
+    elseif media_images[filename] then
+        media_images[filename]:dispose()
+        media_images[filename] = resource.load_image(file)
     end
 end)
 
@@ -134,10 +196,20 @@ node.event("content_remove", function(filename)
         qrs[filename]:dispose()
         qrs[filename] = nil
     end
+    if media_images[filename] then
+        media_images[filename]:dispose()
+        media_images[filename] = nil
+    end
+    if active_video_name == filename and active_video then
+        active_video:dispose()
+        active_video = nil
+        active_video_name = nil
+    end
 end)
 
-node.event("child_add", rebuild_sequence)
-node.event("child_remove", rebuild_sequence)
+if util.set_interval then
+    util.set_interval(60, rebuild_sequence)
+end
 
 local function text_width_limited(text, x, y, size, max_width, r, g, b, a)
     text = tostring(text or "")
@@ -202,6 +274,43 @@ local function draw_empty()
     font:write(NATIVE_WIDTH * 0.08, NATIVE_HEIGHT * 0.55, "Waiting for schedule content", NATIVE_HEIGHT * 0.04, 0.55, 0.61, 0.7, 1)
 end
 
+local function stop_video()
+    if active_video then
+        active_video:dispose()
+        active_video = nil
+        active_video_name = nil
+    end
+end
+
+local function draw_media(item, alpha)
+    local asset = item.asset or {}
+    local filename = asset.asset_name
+    gl.clear(0, 0, 0, 1)
+    if asset.type == "video" and filename then
+        if active_video_name ~= filename then
+            stop_video()
+            active_video = resource.load_video{
+                file = resource.open_file(filename),
+                audio = config.playlist_audio == true,
+                looped = true,
+            }
+            active_video_name = filename
+        end
+        if active_video then
+            util.draw_correct(active_video, 0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, alpha)
+        end
+    elseif asset.type == "image" and filename then
+        stop_video()
+        load_media_image(asset)
+        local image = media_images[filename]
+        if image and image:state() == "loaded" then
+            util.draw_correct(image, 0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, alpha)
+        end
+    else
+        stop_video()
+    end
+end
+
 function node.render()
     screen_transform()
     local item = sequence[sequence_index]
@@ -215,13 +324,12 @@ function node.render()
     end
     local fade = math.min(1, elapsed / 0.5)
     if item.kind == "movie" then
+        stop_video()
         draw_movie(item.movie, fade)
-    elseif item.kind == "child" then
-        gl.clear(0, 0, 0, 1)
-        local rendered = resource.render_child(item.name)
-        rendered:draw(0, 0, NATIVE_WIDTH, NATIVE_HEIGHT, fade)
-        rendered:dispose()
+    elseif item.kind == "media" then
+        draw_media(item, fade)
     else
+        stop_video()
         draw_empty()
     end
     if not connection_ok then
